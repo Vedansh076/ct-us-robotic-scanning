@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** **Stage 2 Completed (Histogram Matching)**. Ready for Stage 3 (OpenAI Gym Environment wrapping). Retraining is currently delayed due to lack of GPU access.
+* **Current Focus:** **Stage 2 Completed (Histogram Matching)**. Retraining files for the UltraBones100k dataset (arXiv:2502.03783) have been created, verified, and committed. Ready for Stage 3 (OpenAI Gym Environment wrapping) or actual model retraining on a GPU.
 
 ---
 
