@@ -103,6 +103,10 @@ from model.pix2pix.model import UNet as UNetPix2Pix
 # ── registration imports (NEW) ────────────────────────────────────────────────
 from registration import compute_registered_ct_center, load_registration_meta
 
+# ── global variables for histogram matching (Stage 2) ────────────────────────
+REFERENCE_CT_SLICE = None
+MATCH_HISTOGRAM = False
+
 # ── window names ───────────────────────────────────────────────────────────────
 WINDOW_COMBINED = "CT & Ultrasound (Side by Side)"
 WINDOW_COMPARE = "Training Comparison"
@@ -281,6 +285,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable log-compression post-processing (use raw model output).",
     )
+    parser.add_argument(
+        "--match-histogram",
+        action="store_true",
+        help="Enable intensity histogram matching to reference slice (Stage 2).",
+    )
     return parser.parse_args()
 
 
@@ -361,6 +370,30 @@ def predict_ultrasound(
     the network inputs that look like noise, and the network responds with
     low-confidence (near-zero) predictions.
     """
+    global REFERENCE_CT_SLICE, MATCH_HISTOGRAM
+
+    # ── Stage 2: Intensity Histogram Matching ─────────────────────────────────
+    if MATCH_HISTOGRAM:
+        if REFERENCE_CT_SLICE is None:
+            ref_path = PROJECT_ROOT / "model" / "reference_ct_slice.npy"
+            if ref_path.exists():
+                try:
+                    REFERENCE_CT_SLICE = np.load(ref_path)
+                    print(f"[inference] Loaded histogram reference template from {ref_path}")
+                except Exception as e:
+                    print(f"ERROR: Failed to load reference template: {e}")
+                    REFERENCE_CT_SLICE = False
+            else:
+                print(f"WARNING: Reference template {ref_path} not found. Histogram matching disabled.")
+                REFERENCE_CT_SLICE = False
+
+        if REFERENCE_CT_SLICE is not None and not isinstance(REFERENCE_CT_SLICE, bool):
+            try:
+                from skimage.exposure import match_histograms
+                ct_slice = match_histograms(ct_slice, REFERENCE_CT_SLICE)
+            except Exception as e:
+                pass
+
     if is_pix2pix:
         ct_norm = normalise_ct_tanh(ct_slice)
     else:
@@ -415,6 +448,9 @@ def run_evaluation(args: argparse.Namespace) -> None:
     if not _SKIMAGE_OK:
         print("ERROR: scikit-image required for evaluation (pip install scikit-image).")
         sys.exit(1)
+
+    global MATCH_HISTOGRAM
+    MATCH_HISTOGRAM = args.match_histogram
 
     device = select_device(args.device)
     if args.checkpoint is None:
@@ -1058,6 +1094,9 @@ def compare_with_training(live_ct, live_us, training_ct, training_us) -> np.ndar
 
 def main() -> None:
     args = parse_args()
+
+    global MATCH_HISTOGRAM
+    MATCH_HISTOGRAM = args.match_histogram
 
     if args.checkpoint is None:
         args.checkpoint = DEFAULT_PIX2PIX_CKPT if args.model == "pix2pix" else DEFAULT_UNET_CKPT
