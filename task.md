@@ -1,6 +1,6 @@
-# Stage 1 Roadmap Checklist
+# Project Roadmap Checklist
 
-This checklist tracks the implementation of Stage 1 changes: standardizing normalization, fixing model imports, and integrating registration math into the main demo.
+This checklist tracks the implementation of Stage 1 (Alignment & Registration) and Stage 2 (Generative Realism) changes.
 
 ## Action Items
 
@@ -22,3 +22,10 @@ This checklist tracks the implementation of Stage 1 changes: standardizing norma
 - [ ] **4. Testing and Verification**
   - [ ] Verify that model predictions in the simulation loop are no longer dark/grey and map anatomically (Pending model retraining)
   - [x] Run offline quantitative evaluation (`--eval`) over all subject datasets and verify statistics (Successfully compiled and verified)
+
+## Stage 2: Generative Realism (Histogram Matching)
+
+- [x] **1. Implement Intensity Histogram Matching**
+  - [x] Extract and save a representative reference CT slice to `model/reference_ct_slice.npy`
+  - [x] Expose `--match-histogram` command-line argument in `live_unet_demo.py`
+  - [x] Integrate `skimage.exposure.match_histograms` in the inference path to align incoming CT slices with the training distribution
