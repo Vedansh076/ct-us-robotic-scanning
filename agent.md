@@ -31,3 +31,4 @@ To maintain consistency across sessions, every active agent must adhere to the f
 2. **Update on Step Completion:** As items in `task.md` are started, marked in progress, or completed, edit `task.md` immediately to reflect the change.
 3. **Record Findings:** If a new bug is found, or if a critical design decision is made, update Section 2 of `agent.md` to document the context.
 4. **Transition Handover:** Before concluding a turn, update the "Current Focus" in `agent.md` with instructions for the next agent.
+5. **Git Synchronization:** Commit and push verified code changes to the GitHub remote (`git push origin main`) to ensure changes are synced across devices.

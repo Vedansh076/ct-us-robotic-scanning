@@ -9,3 +9,4 @@ This workspace contains two tracking files to preserve context and tasks across 
 2. **Synchronize Tasks:** When you start or complete any task listed in `task.md`, update its checklist status (e.g. `[x]`, `[/]`, `[ ]`) immediately.
 3. **Log Technical Findings:** If you discover new bugs, architectural details, or normalisation/activation mismatches, document them in Section 2 of `agent.md`.
 4. **Active Workspace:** Make all changes in the `ct_us` main project folder. Do not work in `ct_us_standalone` directly unless explicitly requested to update the standalone package.
+5. **Git Synchronization:** Upon completing a task or stage, verify compilation. Stage the modified code files, commit them, and push the updates to GitHub using `git push origin main` to keep the remote repository current.
