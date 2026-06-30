@@ -1,0 +1,37 @@
+# Caches
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Models & Checkpoints
+*.pth
+*.pt
+model/runs/
+runs/
+
+# Large Datasets & Medical Volumes
+*.zip
+*.nii
+*.nii.gz
+*.mnc
+*.obj
+*.stl
+*.npy
+dataset/
+
+# Media & Visuals
+*.png
+*.jpg
+*.jpeg
+*.pptx
+*.txt
+*.csv
+
+# Temporary / Scratch Files
+scratch/
+.system_generated/
+.tempmediaStorage/
+
+# Exclude timings and run configs but track registration_meta.json
+*.json
+!registration_meta.json
