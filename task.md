@@ -9,9 +9,12 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Copy `registration.py` to root and integrate `compute_registered_ct_center` and `load_registration_meta` into `live_unet_demo.py`
   - [x] Enable loading of patient-specific `patient_skin.obj` mesh instead of the generic `mosh` body mesh by default
 
-- [ ] **2. Correct U-Net Model Imports & Training**
+- [ ] **2. Correct U-Net Model & Transition to 2-Channel Input**
   - [x] Modify `model/train.py` to import `UNet` from `model` (Sigmoid output) instead of `pix2pix.model` (Tanh output)
   - [x] Standardize clinical windowing/clipping range (e.g. $[-200, 300]$ HU) consistently across both `model/dataset.py` and `live_unet_demo.py`
+  - [ ] Adapt U-Net/Pix2Pix architectures in `model/model.py` and `model/pix2pix/model.py` to take 2-channel input (CT + Seg)
+  - [ ] Update `model/dataset.py` to load, normalize, and stack both CT and label slices
+  - [ ] Update `live_unet_demo.py` and `extract_slice.py` to slice and stack label volumes during simulation
   - [ ] Retrain the U-Net model using the corrected training script (Delayed: User has no GPU access right now)
 
 - [x] **3. Update Simulator HUD & Control Features**

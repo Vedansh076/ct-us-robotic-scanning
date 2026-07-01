@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** **Stage 2 Completed (Histogram Matching)**. Ready for Stage 3 (OpenAI Gym Environment wrapping). Retraining is currently delayed due to lack of GPU access.
+* **Current Focus:** Preparing for **2-channel semantic-guided (CT + Seg -> US) training** on UltraBones100k (on the GPU machine), and setting up the local **Stage 3 OpenAI Gym Environment wrapper** in PyBullet.
 
 ---
 
@@ -22,6 +22,11 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ### Bug 3: Unintegrated Registration Math [RESOLVED]
 * **Resolution:** Exact registration coordinates and registration-aware slice extraction functions from `research_registration/` have been promoted to the root files `live_unet_demo.py`, `registration.py`, and `extract_slice.py`. The simulation now loads patient-specific skin meshes (`patient_skin.obj` and `registration_meta.json`) by default.
+
+### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
+* **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
+* **Generative Training:** We will train the model on the **UltraBones100k** dataset (ex-vivo rigid registration) to achieve maximum B-mode realism.
+* **Simulator Anatomy:** We will use **CT-only data** (e.g. TotalSegmentator) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
 
 ---
 
