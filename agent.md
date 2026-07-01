@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** **Stage 2 Completed (Histogram Matching)**. Retraining files for the UltraBones100k dataset (arXiv:2502.03783) have been created, verified, and committed. Ready for Stage 3 (OpenAI Gym Environment wrapping) or actual model retraining on a GPU.
+* **Current Focus:** Train the 2-channel Pix2Pix model (CT + Seg -> US) on UltraBones100k, integrate it with the live simulator demo, and set up the local Stage 3 OpenAI Gym Environment wrapper in PyBullet.
 
 ---
 
@@ -22,6 +22,15 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ### Bug 3: Unintegrated Registration Math [RESOLVED]
 * **Resolution:** Exact registration coordinates and registration-aware slice extraction functions from `research_registration/` have been promoted to the root files `live_unet_demo.py`, `registration.py`, and `extract_slice.py`. The simulation now loads patient-specific skin meshes (`patient_skin.obj` and `registration_meta.json`) by default.
+
+### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
+* **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
+* **Generative Training:** We will train the model on the **UltraBones100k** dataset (ex-vivo rigid registration) to achieve maximum B-mode realism.
+* **Simulator Anatomy:** We will use **CT-only data** (e.g. TotalSegmentator) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
+
+### Decision 2: Curved Clinical Probe & Flange Mount (Visual Design)
+* **Visuals:** Redesigned the probe shape to look like a real curved/convex abdominal array. Replaced the boxy lower wedge with a horizontally oriented cylinder along the X-axis (radius `0.015` m, length `0.056` m). This provides a smooth, rounded scanning footprint that tapers cleanly into the cylinder handle with zero sharp boxy corners.
+* **Mounting:** Permanently hid the robot's gripper fingers (links 9 and 10) but kept the hand base (link 8) visible. Extended the probe height profile to `Z = 0.240` m (shifting offsets upwards) to insert the probe's top mount directly into the hand base, replicating the fingerless end-effector layout of SonoGym with no visual gaps.
 
 ---
 
