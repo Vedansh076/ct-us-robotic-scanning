@@ -22,8 +22,8 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Expose manual movement speed keys (`[` and `]`) and axis locking (`[X]`, `[Y]`, `[Z]` keys)
   - [x] Integrate B-mode scanning plane (orthogonal to skin) and longitudinal/transverse toggle (`[T]` key) with visual HUD indicator
 
-- [ ] **4. Testing and Verification**
-  - [ ] Verify that model predictions in the simulation loop are no longer dark/grey and map anatomically (Pending model retraining)
+- [x] **4. Testing and Verification**
+  - [x] Verify that model predictions in the simulation loop load and execute with the new 2-channel checkpoint (Successfully loaded and verified)
   - [x] Run offline quantitative evaluation (`--eval`) over all subject datasets and verify statistics (Successfully compiled and verified)
 
 - [x] **5. Replicate Curved Probe & Fingerless Mount (Visual Alignment)**

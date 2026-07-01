@@ -250,7 +250,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model", choices=("unet", "pix2pix"), default="unet")
     parser.add_argument("--subject", type=str, default="TCGA-QQ-A8VG")
-    parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--checkpoint", type=str, default="model/runs/exp1_2IP/exp1/best_model.pth",
+                        help="Path to the model checkpoint (default: exp1_2IP/exp1)")
     parser.add_argument("--base-features", type=int, default=64)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")

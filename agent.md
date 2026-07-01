@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Train the 2-channel Pix2Pix model (CT + Seg -> US) on UltraBones100k, integrate it with the live simulator demo, and set up the local Stage 3 OpenAI Gym Environment wrapper in PyBullet.
+* **Current Focus:** 2-channel semantic-guided (CT + Seg -> US) pipeline successfully integrated and verified with new `exp1_2IP` checkpoint. Ready to construct the local **Stage 3 OpenAI Gym Environment wrapper** in PyBullet.
 
 ---
 

@@ -7,6 +7,8 @@ __pycache__/
 *.pth
 *.pt
 model/runs/
+!model/runs/exp1_2IP/
+!model/runs/exp1_2IP/*.pth
 runs/
 
 # Large Datasets & Medical Volumes
