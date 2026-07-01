@@ -124,33 +124,40 @@ PROBE_QUAT_FROM_EE = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
 PROBE_COMPONENTS = (
     {
         "name": "contact_surface",
-        "half_extents": [0.060, 0.030, 0.003],
+        "geom_type": p.GEOM_BOX,
+        "half_extents": [0.030, 0.015, 0.003],
         "offset": np.array([0.0, 0.0, -0.003], dtype=np.float32),
-        "rgba": [0.02, 0.4, 0.02, 0.6],
+        "rgba": [0.95, 0.95, 0.97, 1.0],
     },
     {
         "name": "acoustic_footprint",
-        "half_extents": [0.060, 0.026, 0.006],
+        "geom_type": p.GEOM_BOX,
+        "half_extents": [0.030, 0.012, 0.006],
         "offset": np.array([0.0, 0.0, 0.006], dtype=np.float32),
-        "rgba": [0.04, 0.04, 0.045, 1.0],
+        "rgba": [0.15, 0.15, 0.15, 1.0], # black transducer scanning face
     },
     {
         "name": "neck",
-        "half_extents": [0.026, 0.018, 0.036],
-        "offset": np.array([0.0, 0.0, 0.048], dtype=np.float32),
-        "rgba": [0.08, 0.22, 0.55, 1.0],
+        "geom_type": p.GEOM_CYLINDER,
+        "radius": 0.016,
+        "length": 0.070,
+        "offset": np.array([0.0, 0.0, 0.045], dtype=np.float32),
+        "rgba": [0.95, 0.95, 0.97, 1.0],
     },
     {
         "name": "top_housing",
-        "half_extents": [0.050, 0.034, 0.046],
-        "offset": np.array([0.0, 0.0, 0.112], dtype=np.float32),
-        "rgba": [0.0, 0.28, 0.90, 1.0],
+        "geom_type": p.GEOM_BOX,
+        "half_extents": [0.040, 0.026, 0.040],
+        "offset": np.array([0.0, 0.0, 0.100], dtype=np.float32),
+        "rgba": [0.95, 0.95, 0.97, 1.0],
     },
     {
         "name": "cable_stub",
-        "half_extents": [0.014, 0.014, 0.030],
-        "offset": np.array([0.0, 0.0, 0.188], dtype=np.float32),
-        "rgba": [0.02, 0.02, 0.025, 1.0],
+        "geom_type": p.GEOM_CYLINDER,
+        "radius": 0.006,
+        "length": 0.040,
+        "offset": np.array([0.0, 0.0, 0.160], dtype=np.float32),
+        "rgba": [0.90, 0.90, 0.92, 1.0],
     },
 )
 
@@ -289,6 +296,11 @@ def parse_args() -> argparse.Namespace:
         "--match-histogram",
         action="store_true",
         help="Enable intensity histogram matching to reference slice (Stage 2).",
+    )
+    parser.add_argument(
+        "--only-probe",
+        action="store_true",
+        help="Hide the robot arm and display only the ultrasound probe.",
     )
     return parser.parse_args()
 
@@ -928,6 +940,26 @@ def create_registered_body_mesh(subject_dir: Path, bed_top_z: float, mesh_scale:
     return body_id, body_position, body_orientation_matrix, reg_meta
 
 
+def get_robot_original_colors(panda_id: int) -> dict[int, list[float]]:
+    # linkIndex -> rgbaColor
+    colors = {}
+    visual_data = p.getVisualShapeData(panda_id)
+    for entry in visual_data:
+        link_index = entry[1]
+        rgba = entry[7]
+        colors[link_index] = list(rgba)
+    return colors
+
+
+def set_robot_visibility(panda_id: int, visible: bool, original_colors: dict[int, list[float]]) -> None:
+    for link_index in range(-1, p.getNumJoints(panda_id)):
+        if visible:
+            rgba = original_colors.get(link_index, [0.9, 0.9, 0.9, 1.0])
+            p.changeVisualShape(panda_id, link_index, rgbaColor=rgba)
+        else:
+            p.changeVisualShape(panda_id, link_index, rgbaColor=[0.0, 0.0, 0.0, 0.0])
+
+
 def create_panda_robot() -> int:
     panda_id = p.loadURDF("franka_panda/panda.urdf",
                           basePosition=[-0.42, 0.0, 0.50],
@@ -944,7 +976,11 @@ def create_panda_robot() -> int:
 def create_probe_model() -> list[int]:
     ids = []
     for comp in PROBE_COMPONENTS:
-        vis = p.createVisualShape(p.GEOM_BOX, halfExtents=comp["half_extents"], rgbaColor=comp["rgba"])
+        g_type = comp.get("geom_type", p.GEOM_BOX)
+        if g_type == p.GEOM_CYLINDER:
+            vis = p.createVisualShape(p.GEOM_CYLINDER, radius=comp["radius"], length=comp["length"], rgbaColor=comp["rgba"])
+        else:
+            vis = p.createVisualShape(p.GEOM_BOX, halfExtents=comp["half_extents"], rgbaColor=comp["rgba"])
         ids.append(p.createMultiBody(baseMass=0.0, baseCollisionShapeIndex=-1,
                                      baseVisualShapeIndex=vis, basePosition=[0, 0, 1],
                                      baseOrientation=p.getQuaternionFromEuler([0, 0, 0])))
@@ -1177,6 +1213,12 @@ def main() -> None:
 
     mesh_bounds_min, mesh_bounds_max, body_center, body_extent = get_body_bounds(body_id)
     panda_id    = create_panda_robot()
+    robot_colors = get_robot_original_colors(panda_id)
+
+    # Initialize visibility state based on CLI argument
+    show_robot  = not args.only_probe
+    set_robot_visibility(panda_id, show_robot, robot_colors)
+
     probe_body_id = create_probe_model()
 
     # Configuration state & manual default
@@ -1343,6 +1385,11 @@ def main() -> None:
                     manual_y = float(np.clip(target_position[1] - body_center[1], -body_half_y, body_half_y))
                     manual_roll = probe_roll; manual_pitch = probe_pitch; manual_yaw = 0.0
                     manual_z = 1.10 + probe_height_correction if snap_on else float(target_position[2])
+
+            if is_key_triggered('h'):
+                show_robot = not show_robot
+                set_robot_visibility(panda_id, show_robot, robot_colors)
+                print(f"Robot visibility: {'Visible' if show_robot else 'Hidden'}")
 
             if is_key_triggered('p'):
                 snap_on = not snap_on
