@@ -140,16 +140,23 @@ PROBE_COMPONENTS = (
         "name": "handle",
         "geom_type": p.GEOM_CYLINDER,
         "radius": 0.020,
-        "length": 0.120,
-        "offset": np.array([0.0, 0.0, 0.105], dtype=np.float32),
+        "length": 0.090,
+        "offset": np.array([0.0, 0.0, 0.090], dtype=np.float32),
         "rgba": [0.96, 0.96, 0.96, 1.0],
+    },
+    {
+        "name": "top_mount",
+        "geom_type": p.GEOM_BOX,
+        "half_extents": [0.020, 0.038, 0.0175],
+        "offset": np.array([0.0, 0.0, 0.1525], dtype=np.float32),
+        "rgba": [0.96, 0.96, 0.96, 1.0], # sits snugly between the gripper fingers
     },
     {
         "name": "cable",
         "geom_type": p.GEOM_CYLINDER,
         "radius": 0.006,
-        "length": 0.030,
-        "offset": np.array([0.0, 0.0, 0.165], dtype=np.float32),
+        "length": 0.010,
+        "offset": np.array([0.0, 0.0, 0.175], dtype=np.float32),
         "rgba": [0.96, 0.96, 0.96, 1.0],
     },
 )
@@ -945,8 +952,7 @@ def get_robot_original_colors(panda_id: int) -> dict[int, list[float]]:
 
 
 def set_robot_visibility(panda_id: int, visible: bool, original_colors: dict[int, list[float]]) -> None:
-    # Only modify links -1 to 7 (arm joints); keep links 8, 9, 10 (hand/fingers) hidden
-    for link_index in range(-1, 8):
+    for link_index in range(-1, p.getNumJoints(panda_id)):
         if visible:
             rgba = original_colors.get(link_index, [0.9, 0.9, 0.9, 1.0])
             p.changeVisualShape(panda_id, link_index, rgbaColor=rgba)
@@ -1209,11 +1215,7 @@ def main() -> None:
     panda_id    = create_panda_robot()
     robot_colors = get_robot_original_colors(panda_id)
 
-    # Hide gripper hand and finger links permanently to mount probe directly to the wrist
-    for link in [8, 9, 10]:
-        p.changeVisualShape(panda_id, link, rgbaColor=[0.0, 0.0, 0.0, 0.0])
-
-    # Initialize visibility state based on CLI argument (targets arm links -1 to 7)
+    # Initialize visibility state based on CLI argument
     show_robot  = not args.only_probe
     set_robot_visibility(panda_id, show_robot, robot_colors)
 
