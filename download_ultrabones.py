@@ -106,6 +106,8 @@ def main() -> None:
                 repo_id=REPO_ID,
                 filename=zip_filename,
                 repo_type="dataset",
+                local_dir=dest_path,
+                local_dir_use_symlinks=False,
             )
             downloaded_path = Path(downloaded_zip)
             print(f"[+] Downloaded successfully: {downloaded_path}")

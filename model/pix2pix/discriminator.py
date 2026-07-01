@@ -119,7 +119,7 @@ class PatchGANDiscriminator(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 1,
+        in_channels: int = 2,
         out_channels: int = 1,
         features: int = 64,
     ) -> None:

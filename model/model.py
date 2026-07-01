@@ -103,7 +103,7 @@ class UNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 1,
+        in_channels: int = 2,
         out_channels: int = 1,
         base_features: int = 64,
         dropout: float = 0.1,
@@ -154,7 +154,8 @@ class UNet(nn.Module):
         """
         Parameters
         ----------
-        x : (B, 1, H, W) — normalised CT in [-1, 1]
+        x : (B, 2, H, W) — normalised CT + Seg in [-1, 1] / [0, 1]
+
 
         Returns
         -------

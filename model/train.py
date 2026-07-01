@@ -170,20 +170,31 @@ def save_visual_comparison(
     gt_all   = torch.cat(gt_list)[:n_samples]
     pred_all = torch.cat(pred_list)[:n_samples]
 
-    fig, axes = plt.subplots(n_samples, 3, figsize=(9, 3 * n_samples))
+    fig, axes = plt.subplots(n_samples, 4, figsize=(12, 3 * n_samples))
     if n_samples == 1:
         axes = axes[np.newaxis, :]
 
-    cols = ["CT input", "GT SimUS", "Pred SimUS"]
-    for col_idx, (title, imgs) in enumerate(
-        zip(cols, [ct_all, gt_all, pred_all])
-    ):
-        for row_idx in range(n_samples):
-            img = imgs[row_idx, 0].numpy()
-            axes[row_idx, col_idx].imshow(img, cmap="gray", origin="upper")
-            axes[row_idx, col_idx].axis("off")
-            if row_idx == 0:
-                axes[row_idx, col_idx].set_title(title, fontsize=11)
+    cols = ["CT input", "Seg input", "GT US", "Pred US"]
+    
+    for row_idx in range(n_samples):
+        # 1. CT input (channel 0)
+        axes[row_idx, 0].imshow(ct_all[row_idx, 0].numpy(), cmap="gray", origin="upper")
+        axes[row_idx, 0].axis("off")
+        
+        # 2. Seg input (channel 1)
+        axes[row_idx, 1].imshow(ct_all[row_idx, 1].numpy(), cmap="gray", origin="upper")
+        axes[row_idx, 1].axis("off")
+        
+        # 3. GT US
+        axes[row_idx, 2].imshow(gt_all[row_idx, 0].numpy(), cmap="gray", origin="upper")
+        axes[row_idx, 2].axis("off")
+        
+        # 4. Pred US
+        axes[row_idx, 3].imshow(pred_all[row_idx, 0].numpy(), cmap="gray", origin="upper")
+        axes[row_idx, 3].axis("off")
+        
+    for col_idx, title in enumerate(cols):
+        axes[0, col_idx].set_title(title, fontsize=11)
 
     fig.suptitle(f"Epoch {epoch}", fontsize=13, y=1.01)
     fig.tight_layout()
@@ -291,7 +302,7 @@ def main() -> None:
 
     # ----- Model, loss, optimiser -----
     model = UNet(
-        in_channels=1,
+        in_channels=2,
         out_channels=1,
         base_features=args.base_features,
         dropout=args.dropout,

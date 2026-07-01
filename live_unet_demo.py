@@ -164,7 +164,7 @@ PROBE_COMPONENTS = (
 )
 
 DEFAULT_UNET_CKPT = MODEL_ROOT / "runs" / "exp1" / "best_model.pth"
-DEFAULT_PIX2PIX_CKPT = MODEL_ROOT / "runs" / "pix2pix_test" / "best_model.pth"
+DEFAULT_PIX2PIX_CKPT = MODEL_ROOT / "runs" / "exp_pix2pix" / "best_model.pth"
 
 # ── normalisation constants (Concordia paired CT-US training data) ─────────────
 # These values replicate the training preprocessing: HU is soft-windowed to
@@ -318,7 +318,7 @@ def resolve_subject_dir(subject: str) -> Path:
     return PROJECT_ROOT / subject
 
 
-def load_ct_subject(subject_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def load_ct_subject(subject_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if not _NIB_OK:
         raise ImportError("nibabel required for CT loading.")
     ct_path = subject_dir / "CT.nii"
@@ -326,9 +326,27 @@ def load_ct_subject(subject_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarr
         raise FileNotFoundError(f"Missing CT.nii in {subject_dir}")
     ct_img = nib.load(str(ct_path))
     ct_volume = ct_img.get_fdata()
+
+    # Try to load label volume, otherwise fallback to thresholding
+    label_volume = None
+    for name in ["Labels.nii", "Label.nii", "segmentation.nii", "segmentation.nii.gz", "labels.nii", "labels.nii.gz"]:
+        path = subject_dir / name
+        if path.exists():
+            try:
+                label_volume = nib.load(str(path)).get_fdata()
+                print(f"[load] Loaded bone label volume from {path}")
+                break
+            except Exception as e:
+                print(f"[load] Failed to load label volume {path}: {e}")
+
+    if label_volume is None:
+        print("[load] Label volume not found. Generating dummy bone label by thresholding CT (> 200 HU).")
+        # Threshold at 200 HU to extract bone boundaries
+        label_volume = (ct_volume > 200.0).astype(np.float32)
+
     spacing = np.array(ct_img.header.get_zooms()[:3], dtype=np.float32)
     volume_center = (np.array(ct_volume.shape, dtype=np.float32) - 1) / 2
-    return ct_volume, spacing, volume_center
+    return ct_volume, label_volume, spacing, volume_center
 
 
 def select_device(device_arg: str) -> torch.device:
@@ -339,7 +357,7 @@ def select_device(device_arg: str) -> torch.device:
 
 def load_unet(checkpoint_path: Path, device: torch.device,
               base_features: int, dropout: float) -> UNetOriginal:
-    model = UNetOriginal(in_channels=1, out_channels=1,
+    model = UNetOriginal(in_channels=2, out_channels=1,
                          base_features=base_features, dropout=dropout).to(device)
     checkpoint = torch.load(checkpoint_path, map_location=device)
     state = checkpoint.get("model_state", checkpoint)
@@ -350,7 +368,7 @@ def load_unet(checkpoint_path: Path, device: torch.device,
 
 def load_pix2pix(checkpoint_path: Path, device: torch.device,
                  base_features: int, dropout: float) -> UNetPix2Pix:
-    model = UNetPix2Pix(in_channels=1, out_channels=1, base_features=base_features,
+    model = UNetPix2Pix(in_channels=2, out_channels=1, base_features=base_features,
                         dropout=dropout, pix2pix_dropout=False).to(device)
     checkpoint = torch.load(checkpoint_path, map_location=device)
     state = checkpoint.get("G", checkpoint.get("model_state", checkpoint))
@@ -366,6 +384,7 @@ def load_pix2pix(checkpoint_path: Path, device: torch.device,
 def predict_ultrasound(
         model: torch.nn.Module,
         ct_slice: np.ndarray,
+        seg_slice: np.ndarray,
         device: torch.device,
         is_pix2pix: bool = False,
         enhance: bool = True,
@@ -410,14 +429,18 @@ def predict_ultrasound(
 
     if is_pix2pix:
         ct_norm = normalise_ct_tanh(ct_slice)
+        seg_norm = seg_slice * 2.0 - 1.0
     else:
         ct_norm = normalise_ct_sigmoid(ct_slice)
+        seg_norm = seg_slice
 
     ct_tensor = torch.from_numpy(ct_norm).unsqueeze(0).unsqueeze(0).to(device)
+    seg_tensor = torch.from_numpy(seg_norm).unsqueeze(0).unsqueeze(0).to(device)
+    input_tensor = torch.cat([ct_tensor, seg_tensor], dim=1) # (1, 2, H, W)
 
     with torch.no_grad():
         with autocast(device_type=device.type, enabled=(device.type == "cuda")):
-            pred = model(ct_tensor)
+            pred = model(input_tensor)
 
     pred_np = pred.squeeze().detach().cpu().float().numpy()
 
@@ -499,7 +522,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
     for subj_dir in subjects:
         print(f"[eval]   Subject: {subj_dir.name} ...", end=" ", flush=True)
         try:
-            ct_volume, spacing, volume_center = load_ct_subject(subj_dir)
+            ct_volume, label_volume, spacing, volume_center = load_ct_subject(subj_dir)
         except Exception as e:
             print(f"SKIP ({e})")
             continue
@@ -526,8 +549,14 @@ def run_evaluation(args: argparse.Namespace) -> None:
                 ct_volume, center=center, quaternion=identity_quat,
                 spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
             )
+            seg_slice = extract_slice(
+                label_volume, center=center, quaternion=identity_quat,
+                spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
+            )
+            seg_slice = (seg_slice > 0.5).astype(np.float32)
+
             pred_us = predict_ultrasound(
-                model, ct_slice, device, is_pix2pix=is_pix2pix,
+                model, ct_slice, seg_slice, device, is_pix2pix=is_pix2pix,
                 enhance=(not args.no_enhance),
             )
 
@@ -1165,7 +1194,7 @@ def main() -> None:
 
     # ── Subject and model loading ──────────────────────────────────────────────
     subject_dir = resolve_subject_dir(args.subject)
-    ct_volume, spacing, volume_center = load_ct_subject(subject_dir)
+    ct_volume, label_volume, spacing, volume_center = load_ct_subject(subject_dir)
 
     device     = select_device(args.device)
     is_pix2pix = (args.model == "pix2pix")
@@ -1185,7 +1214,12 @@ def main() -> None:
         ct_volume, center=volume_center, quaternion=_diag_quat,
         spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
     )
-    _diag_us = predict_ultrasound(model, _diag_slice, device, is_pix2pix,
+    _diag_seg = extract_slice(
+        label_volume, center=volume_center, quaternion=_diag_quat,
+        spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
+    )
+    _diag_seg = (_diag_seg > 0.5).astype(np.float32)
+    _diag_us = predict_ultrasound(model, _diag_slice, _diag_seg, device, is_pix2pix,
                                   enhance=(not args.no_enhance))
     print(f"[startup] Diagnostic US - shape={_diag_us.shape} "
           f"min={_diag_us.min():.4f} max={_diag_us.max():.4f} "
@@ -1294,16 +1328,21 @@ def main() -> None:
         ct_volume, center=volume_center, quaternion=_identity_quat,
         spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
     )
-    last_pred_us = predict_ultrasound(model, _warmup_slice, device,
+    _warmup_seg  = extract_slice(
+        label_volume, center=volume_center, quaternion=_identity_quat,
+        spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
+    )
+    _warmup_seg = (_warmup_seg > 0.5).astype(np.float32)
+    last_pred_us = predict_ultrasound(model, _warmup_slice, _warmup_seg, device,
                                       is_pix2pix, not args.no_enhance)
-    del _warmup_slice, _identity_quat
+    del _warmup_slice, _warmup_seg, _identity_quat
     print(f"[warmup] Initial US frame - shape={last_pred_us.shape} "
           f"mean={last_pred_us.mean():.4f} max={last_pred_us.max():.4f}")
 
     infer_future: "concurrent.futures.Future | None" = None
 
-    def _submit_inference(ct_sl: np.ndarray) -> "concurrent.futures.Future":
-        return executor.submit(predict_ultrasound, model, ct_sl.copy(),
+    def _submit_inference(ct_sl: np.ndarray, seg_sl: np.ndarray) -> "concurrent.futures.Future":
+        return executor.submit(predict_ultrasound, model, ct_sl.copy(), seg_sl.copy(),
                                device, is_pix2pix, not args.no_enhance)
 
     # State
@@ -1321,6 +1360,7 @@ def main() -> None:
     frame_counter = 0
     last_ct_stats = None
     last_valid_ct_slice = None   # ← fallback for all-zero slices (Issue #2)
+    last_valid_seg_slice = None
     warn_str = ""                # ← UI warning string
 
     # Print keyboard guide
@@ -1543,17 +1583,28 @@ def main() -> None:
                                          inv_affine=reg_meta['inv_affine'],
                                          mesh_scale=mesh_scale,
                                          body_orientation_matrix=reg_body_orientation_matrix)
+                seg_slice = extract_slice(label_volume, center=ct_center,
+                                          quaternion=quaternion_xyzw, spacing=spacing,
+                                          size=args.size, pixel_spacing=args.pixel_spacing,
+                                          order=args.interp_order,
+                                          inv_affine=reg_meta['inv_affine'],
+                                          mesh_scale=mesh_scale,
+                                          body_orientation_matrix=reg_body_orientation_matrix)
+                seg_slice = (seg_slice > 0.5).astype(np.float32)
             else:
                 ct_slice = np.zeros((args.size, args.size), dtype=np.float32)
+                seg_slice = np.zeros((args.size, args.size), dtype=np.float32)
             add_timing(timings, "ct_extract", time.perf_counter() - t0)
 
             # ── Fallback for all-zero slices (Issue #2) ───────────────────────
             slice_is_empty = (ct_slice.max() == 0.0)
             if slice_is_empty and last_valid_ct_slice is not None:
                 ct_slice = last_valid_ct_slice
+                seg_slice = last_valid_seg_slice
                 warn_str = "WARN: probe off-body – using last valid slice"
             elif not slice_is_empty:
                 last_valid_ct_slice = ct_slice.copy()
+                last_valid_seg_slice = seg_slice.copy()
                 warn_str = ""
 
             ct_stats = get_ct_statistics(ct_slice)
@@ -1569,17 +1620,17 @@ def main() -> None:
                 if use_async_infer:
                     # Non-blocking check: if no task is running, or if the current task is done, collect it and start a new one
                     if infer_future is None:
-                        infer_future = _submit_inference(ct_slice)
+                        infer_future = _submit_inference(ct_slice, seg_slice)
                     elif infer_future.done():
                         try:
                             last_pred_us = infer_future.result()
                         except Exception as exc:
                             print(f"[infer] exception: {exc}")
-                        infer_future = _submit_inference(ct_slice)
+                        infer_future = _submit_inference(ct_slice, seg_slice)
                 else:
                     # Synchronous inference fallback
                     last_pred_us = predict_ultrasound(
-                        model, ct_slice, device, is_pix2pix, not args.no_enhance)
+                        model, ct_slice, seg_slice, device, is_pix2pix, not args.no_enhance)
                 add_timing(timings, "inference", time.perf_counter() - t0)
 
             pred_us = last_pred_us

@@ -149,7 +149,7 @@ class UNet(nn.Module):
 
     def __init__(
         self,
-        in_channels: int = 1,
+        in_channels: int = 2,
         out_channels: int = 1,
         base_features: int = 64,
         dropout: float = 0.1,           # unchanged: bottleneck regularisation

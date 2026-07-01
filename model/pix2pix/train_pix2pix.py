@@ -124,8 +124,8 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Subject lists  (UNCHANGED)
 # ---------------------------------------------------------------------------
-TRAIN_SUBJECTS = ["tcga-qq-a8vg", "tcga-qq-asv2"]
-VAL_SUBJECTS   = ["tcga-qq-asvc"]
+TRAIN_SUBJECTS = [f"specimen{i:02d}" for i in range(1, 11)]
+VAL_SUBJECTS   = [f"specimen{i:02d}" for i in range(11, 15)]
 
 
 # ---------------------------------------------------------------------------
@@ -323,26 +323,38 @@ def save_visual_comparison(
     fake_all  = torch.cat(fake_list)[:n]
     patch_all = torch.cat(patch_list)[:n]
 
-    # Rescale everything to [0,1] for imshow
-    ct_disp   = tanh_range_to_display(ct_all)   # CT was in [-1,1]
-    fake_disp = tanh_range_to_display(fake_all) # fake in [-1,1]
-    # gt_all already [0,1]; patch_all already [0,1] (sigmoid)
+    ct_disp   = tanh_range_to_display(ct_all)
+    fake_disp = tanh_range_to_display(fake_all)
 
-    cols  = ["CT input", "GT SimUS", "Fake SimUS", "D patch (P(real))"]
-    imgs  = [ct_disp, gt_all, fake_disp, patch_all]
-
-    fig, axes = plt.subplots(n, 4, figsize=(16, 4 * n))
+    cols  = ["CT input", "Seg input", "GT SimUS", "Fake SimUS", "D patch (P(real))"]
+    
+    fig, axes = plt.subplots(n, 5, figsize=(20, 4 * n))
     if n == 1:
         axes = axes[np.newaxis, :]
 
-    for col_idx, (title, batch) in enumerate(zip(cols, imgs)):
-        for row_idx in range(n):
-            img = batch[row_idx, 0].numpy()
-            axes[row_idx, col_idx].imshow(img, cmap="gray", origin="upper",
-                                          vmin=0.0, vmax=1.0)
-            axes[row_idx, col_idx].axis("off")
-            if row_idx == 0:
-                axes[row_idx, col_idx].set_title(title, fontsize=10)
+    for row_idx in range(n):
+        # 1. CT input (channel 0)
+        axes[row_idx, 0].imshow(ct_disp[row_idx, 0].numpy(), cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        axes[row_idx, 0].axis("off")
+        
+        # 2. Seg input (channel 1)
+        axes[row_idx, 1].imshow(ct_disp[row_idx, 1].numpy(), cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        axes[row_idx, 1].axis("off")
+        
+        # 3. GT SimUS
+        axes[row_idx, 2].imshow(gt_all[row_idx, 0].numpy(), cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        axes[row_idx, 2].axis("off")
+        
+        # 4. Fake SimUS
+        axes[row_idx, 3].imshow(fake_disp[row_idx, 0].numpy(), cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        axes[row_idx, 3].axis("off")
+        
+        # 5. D patch
+        axes[row_idx, 4].imshow(patch_all[row_idx, 0].numpy(), cmap="gray", origin="upper", vmin=0.0, vmax=1.0)
+        axes[row_idx, 4].axis("off")
+
+    for col_idx, title in enumerate(cols):
+        axes[0, col_idx].set_title(title, fontsize=10)
 
     fig.suptitle(f"Epoch {epoch}", fontsize=13, y=1.01)
     fig.tight_layout()
@@ -491,8 +503,8 @@ def main() -> None:
     log.info(f"Device: {device} | AMP: {use_amp}")
 
     # ----- Datasets (UNCHANGED call signature) -----
-    train_ds = CTSimUSDataset(args.data_root, TRAIN_SUBJECTS)
-    val_ds   = CTSimUSDataset(args.data_root, VAL_SUBJECTS)
+    train_ds = CTSimUSDataset(args.data_root, TRAIN_SUBJECTS, is_pix2pix=True)
+    val_ds   = CTSimUSDataset(args.data_root, VAL_SUBJECTS, is_pix2pix=True)
     log.info(f"Train samples: {len(train_ds)} | Val samples: {len(val_ds)}")
 
     # ----- DataLoaders (UNCHANGED flags) -----
@@ -516,13 +528,13 @@ def main() -> None:
 
     # ----- Models (CHANGE 1) -----
     G = UNet(
-        in_channels=1,
+        in_channels=2,
         out_channels=1,
         base_features=args.base_features,
         dropout=args.dropout,
         pix2pix_dropout=True,
     ).to(device)
-    D = PatchGANDiscriminator(in_channels=1, out_channels=1).to(device)
+    D = PatchGANDiscriminator(in_channels=2, out_channels=1).to(device)
     log.info(G)
     log.info(D)
 
