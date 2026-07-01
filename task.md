@@ -26,6 +26,12 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [ ] Verify that model predictions in the simulation loop are no longer dark/grey and map anatomically (Pending model retraining)
   - [x] Run offline quantitative evaluation (`--eval`) over all subject datasets and verify statistics (Successfully compiled and verified)
 
+- [x] **5. Replicate Curved Probe & Fingerless Mount (Visual Alignment)**
+  - [x] Hide gripper fingers permanently at startup (keeping hand base visible)
+  - [x] Redesign probe components using a horizontal cylinder for a curved wedge footprint (no cube at end)
+  - [x] Extend probe height Z range to 0.240 m to align and mount it directly into the hand base without gaps
+  - [x] Change patient mesh visual color to a smooth pinkish/flesh skin tone
+
 ## Stage 2: Generative Realism (Histogram Matching)
 
 - [x] **1. Implement Intensity Histogram Matching**

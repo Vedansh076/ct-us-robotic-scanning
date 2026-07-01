@@ -28,6 +28,10 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Generative Training:** We will train the model on the **UltraBones100k** dataset (ex-vivo rigid registration) to achieve maximum B-mode realism.
 * **Simulator Anatomy:** We will use **CT-only data** (e.g. TotalSegmentator) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
 
+### Decision 2: Curved Clinical Probe & Flange Mount (Visual Design)
+* **Visuals:** Redesigned the probe shape to look like a real curved/convex abdominal array. Replaced the boxy lower wedge with a horizontally oriented cylinder along the X-axis (radius `0.015` m, length `0.056` m). This provides a smooth, rounded scanning footprint that tapers cleanly into the cylinder handle with zero sharp boxy corners.
+* **Mounting:** Permanently hid the robot's gripper fingers (links 9 and 10) but kept the hand base (link 8) visible. Extended the probe height profile to `Z = 0.240` m (shifting offsets upwards) to insert the probe's top mount directly into the hand base, replicating the fingerless end-effector layout of SonoGym with no visual gaps.
+
 ---
 
 ## 3. Instructions for Keeping Context Files Up-to-Date
