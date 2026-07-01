@@ -125,39 +125,32 @@ PROBE_COMPONENTS = (
     {
         "name": "contact_surface",
         "geom_type": p.GEOM_BOX,
-        "half_extents": [0.030, 0.015, 0.003],
-        "offset": np.array([0.0, 0.0, -0.003], dtype=np.float32),
-        "rgba": [0.95, 0.95, 0.97, 1.0],
+        "half_extents": [0.028, 0.012, 0.003],
+        "offset": np.array([0.0, 0.0, 0.003], dtype=np.float32),
+        "rgba": [0.96, 0.96, 0.96, 1.0],
     },
     {
-        "name": "acoustic_footprint",
+        "name": "wedge",
         "geom_type": p.GEOM_BOX,
-        "half_extents": [0.030, 0.012, 0.006],
-        "offset": np.array([0.0, 0.0, 0.006], dtype=np.float32),
-        "rgba": [0.15, 0.15, 0.15, 1.0], # black transducer scanning face
+        "half_extents": [0.028, 0.015, 0.020],
+        "offset": np.array([0.0, 0.0, 0.025], dtype=np.float32),
+        "rgba": [0.96, 0.96, 0.96, 1.0],
     },
     {
-        "name": "neck",
+        "name": "handle",
         "geom_type": p.GEOM_CYLINDER,
-        "radius": 0.016,
-        "length": 0.070,
-        "offset": np.array([0.0, 0.0, 0.045], dtype=np.float32),
-        "rgba": [0.95, 0.95, 0.97, 1.0],
+        "radius": 0.020,
+        "length": 0.120,
+        "offset": np.array([0.0, 0.0, 0.105], dtype=np.float32),
+        "rgba": [0.96, 0.96, 0.96, 1.0],
     },
     {
-        "name": "top_housing",
-        "geom_type": p.GEOM_BOX,
-        "half_extents": [0.040, 0.026, 0.040],
-        "offset": np.array([0.0, 0.0, 0.100], dtype=np.float32),
-        "rgba": [0.95, 0.95, 0.97, 1.0],
-    },
-    {
-        "name": "cable_stub",
+        "name": "cable",
         "geom_type": p.GEOM_CYLINDER,
         "radius": 0.006,
-        "length": 0.040,
-        "offset": np.array([0.0, 0.0, 0.160], dtype=np.float32),
-        "rgba": [0.90, 0.90, 0.92, 1.0],
+        "length": 0.030,
+        "offset": np.array([0.0, 0.0, 0.165], dtype=np.float32),
+        "rgba": [0.96, 0.96, 0.96, 1.0],
     },
 )
 
@@ -869,7 +862,7 @@ def create_body_mesh(mesh_path: Path, mesh_scale: float, bed_top_z: float) -> in
     col = p.createCollisionShape(p.GEOM_MESH, fileName=str(mesh_path), meshScale=s,
                                  flags=p.GEOM_FORCE_CONCAVE_TRIMESH)
     vis = p.createVisualShape(p.GEOM_MESH, fileName=str(mesh_path), meshScale=s,
-                              rgbaColor=[0.78, 0.62, 0.52, 1.0])
+                              rgbaColor=[0.93, 0.82, 0.79, 1.0])
     return p.createMultiBody(baseMass=0.0, baseCollisionShapeIndex=col, baseVisualShapeIndex=vis,
                              basePosition=body_position, baseOrientation=p.getQuaternionFromEuler([0, 0, 0]))
 
@@ -921,7 +914,7 @@ def create_registered_body_mesh(subject_dir: Path, bed_top_z: float, mesh_scale:
     vis = p.createVisualShape(
         p.GEOM_MESH, fileName=str(mesh_path),
         meshScale=mesh_scale.tolist(),
-        rgbaColor=[0.78, 0.62, 0.52, 1.0],
+        rgbaColor=[0.93, 0.82, 0.79, 1.0],
     )
     body_id = p.createMultiBody(
         baseMass=0.0,
@@ -952,7 +945,8 @@ def get_robot_original_colors(panda_id: int) -> dict[int, list[float]]:
 
 
 def set_robot_visibility(panda_id: int, visible: bool, original_colors: dict[int, list[float]]) -> None:
-    for link_index in range(-1, p.getNumJoints(panda_id)):
+    # Only modify links -1 to 7 (arm joints); keep links 8, 9, 10 (hand/fingers) hidden
+    for link_index in range(-1, 8):
         if visible:
             rgba = original_colors.get(link_index, [0.9, 0.9, 0.9, 1.0])
             p.changeVisualShape(panda_id, link_index, rgbaColor=rgba)
@@ -1215,7 +1209,11 @@ def main() -> None:
     panda_id    = create_panda_robot()
     robot_colors = get_robot_original_colors(panda_id)
 
-    # Initialize visibility state based on CLI argument
+    # Hide gripper hand and finger links permanently to mount probe directly to the wrist
+    for link in [8, 9, 10]:
+        p.changeVisualShape(panda_id, link, rgbaColor=[0.0, 0.0, 0.0, 0.0])
+
+    # Initialize visibility state based on CLI argument (targets arm links -1 to 7)
     show_robot  = not args.only_probe
     set_robot_visibility(panda_id, show_robot, robot_colors)
 
