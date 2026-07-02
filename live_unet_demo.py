@@ -376,8 +376,15 @@ def load_ct_subject(subject_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarr
 
 def select_device(device_arg: str) -> torch.device:
     if device_arg == "auto":
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device_arg)
+        dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        dev = torch.device(device_arg)
+    
+    if dev.type == "cpu":
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
+        print("[device] CPU mode detected: limited PyTorch to 1 CPU thread to prevent simulator starvation.")
+    return dev
 
 
 def load_unet(checkpoint_path: Path, device: torch.device,
