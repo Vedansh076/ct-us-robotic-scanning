@@ -1362,6 +1362,16 @@ def main() -> None:
             target_position = np.array([tx, ty, manual_z], dtype=np.float32)
         probe_roll = manual_roll; probe_pitch = manual_pitch
 
+    # Reset joints to the target pose directly to avoid startup collision/shake
+    initial_joints = p.calculateInverseKinematics(
+        panda_id, PANDA_EE_LINK,
+        targetPosition=target_position.tolist(),
+        targetOrientation=target_orientation.tolist(),
+        maxNumIterations=100, residualThreshold=1e-5,
+    )
+    for jid in PANDA_ARM_JOINTS:
+        p.resetJointState(panda_id, jid, initial_joints[jid])
+
     drive_panda_to_pose(panda_id, target_position, target_orientation)
     for _ in range(120):
         p.stepSimulation()
