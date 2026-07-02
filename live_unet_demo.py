@@ -105,7 +105,7 @@ from registration import compute_registered_ct_center, load_registration_meta
 
 # ── global variables for histogram matching (Stage 2) ────────────────────────
 REFERENCE_CT_SLICE = None
-MATCH_HISTOGRAM = False
+MATCH_HISTOGRAM = True
 
 # ── window names ───────────────────────────────────────────────────────────────
 WINDOW_COMBINED = "CT & Ultrasound (Side by Side)"
@@ -299,9 +299,9 @@ def parse_args() -> argparse.Namespace:
         help="Disable log-compression post-processing (use raw model output).",
     )
     parser.add_argument(
-        "--match-histogram",
+        "--no-match-histogram",
         action="store_true",
-        help="Enable intensity histogram matching to reference slice (Stage 2).",
+        help="Disable intensity histogram matching to reference slice (Stage 2).",
     )
     parser.add_argument(
         "--only-probe",
@@ -512,7 +512,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
         sys.exit(1)
 
     global MATCH_HISTOGRAM
-    MATCH_HISTOGRAM = args.match_histogram
+    MATCH_HISTOGRAM = not args.no_match_histogram
 
     device = select_device(args.device)
     if args.checkpoint is None:
@@ -1195,7 +1195,7 @@ def main() -> None:
     args = parse_args()
 
     global MATCH_HISTOGRAM
-    MATCH_HISTOGRAM = args.match_histogram
+    MATCH_HISTOGRAM = not args.no_match_histogram
 
     if args.checkpoint is None:
         args.checkpoint = DEFAULT_PIX2PIX_CKPT if args.model == "pix2pix" else DEFAULT_UNET_CKPT
