@@ -269,8 +269,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-frames", type=int, default=1)
     parser.add_argument("--diagnostic", action="store_true")
     parser.add_argument("--compare-sample", type=Path, default=None)
-    parser.add_argument("--interp-order", type=int, choices=(1, 3), default=3,
-                        help="Interpolation order for CT slice extraction: 1=linear, 3=cubic spline (default: 3)")
+    parser.add_argument("--interp-order", type=int, choices=(1, 3), default=1,
+                        help="Interpolation order for CT slice extraction: 1=linear, 3=cubic spline (default: 1)")
     parser.add_argument("--body-margin", type=float, default=0.06,
                         help="Margin (in meters) from body footprint boundary for sweep clamping (default: 0.06)")
     # ── new in publication-ready version ──────────────────────────────────────
