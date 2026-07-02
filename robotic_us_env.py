@@ -132,23 +132,30 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.step_counter = 0
         self.no_contact_counter = 0
         
-        # Reset robot arm to home joint states
-        home_joints = [0.0, -0.45, 0.0, -2.25, 0.0, 1.85, 0.78]
-        for jid, v in zip(PANDA_ARM_JOINTS, home_joints):
-            p.resetJointState(self.panda_id, jid, v)
-        for fj in (9, 10):
-            p.resetJointState(self.panda_id, fj, 0.04)
-            
         # Calculate dynamic home position snapped to the patient's skin surface (chest center)
         tx, ty = self.body_center[0], self.body_center[1]
         found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
         if found_body:
             # Settle the probe exactly touching the skin surface with 8mm standoff
             self.home_pos = np.array([tx, ty, surface_z + 0.008 + 0.18], dtype=np.float32)
+            # High approach target to prevent side collision
+            approach_pos = np.array([tx, ty, surface_z + 0.10 + 0.18], dtype=np.float32)
         else:
             self.home_pos = np.array([tx, ty, self.bed_top_z + 0.35], dtype=np.float32)
+            approach_pos = self.home_pos.copy()
             
-        # Drive robot to initial target pose and step a few times to settle
+        # Reset robot arm joints to the high approach pose directly
+        initial_joints = p.calculateInverseKinematics(
+            self.panda_id, PANDA_EE_LINK,
+            targetPosition=approach_pos.tolist(),
+            targetOrientation=self.home_orn.tolist()
+        )
+        for jid, v in zip(PANDA_ARM_JOINTS, initial_joints):
+            p.resetJointState(self.panda_id, jid, v)
+        for fj in (9, 10):
+            p.resetJointState(self.panda_id, fj, 0.04)
+            
+        # Drive robot down to the target home pose and settle
         drive_panda_to_pose(self.panda_id, self.home_pos, self.home_orn)
         for _ in range(60):
             p.stepSimulation()
