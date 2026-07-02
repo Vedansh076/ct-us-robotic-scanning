@@ -58,15 +58,15 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
 
 ## Stage 3: OpenAI Gymnasium Environment Wrapper
 
-- [/] **1. Create Gymnasium Environment Wrapper**
-  - [ ] Create `robotic_us_env.py` and implement `RoboticUltrasoundGymEnv` inheriting from `gymnasium.Env`
-  - [ ] Define continuous 6-DOF task-space action space and dictionary observation space
-  - [ ] Integrate robot IK solver and joint motor controller inside `step`
-  - [ ] Implement force sensor reading and safety contact limit checking
-  - [ ] Integrate 2-channel CT and bone segmentation slice extraction
-  - [ ] Integrate the trained `best_model.pth` U-Net model for real-time B-mode US rendering
-  - [ ] Formulate reward function matching image quality and normal contact forces
-- [ ] **2. Verification and Testing**
-  - [ ] Create automated environment verification script `test_gym_env.py`
-  - [ ] Test random agent step execution and print performance benchmarks (FPS)
-  - [ ] Verify safety threshold terminations and output observation shape consistency
+- [x] **1. Create Gymnasium Environment Wrapper**
+  - [x] Create `robotic_us_env.py` and implement `RoboticUltrasoundGymEnv` inheriting from `gymnasium.Env`
+  - [x] Define continuous 6-DOF task-space action space and dictionary observation space
+  - [x] Integrate robot IK solver and joint motor controller inside `step`
+  - [x] Implement force sensor reading and safety contact limit checking
+  - [x] Integrate 2-channel CT and bone segmentation slice extraction
+  - [x] Integrate the trained `best_model.pth` U-Net model for real-time B-mode US rendering
+  - [x] Formulate reward function matching image quality and normal contact forces
+- [x] **2. Verification and Testing**
+  - [x] Create automated environment verification script `test_gym_env.py`
+  - [x] Test random agent step execution and print performance benchmarks (FPS)
+  - [x] Verify safety threshold terminations and output observation shape consistency
