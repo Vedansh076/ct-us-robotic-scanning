@@ -38,3 +38,18 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Extract and save a representative reference CT slice to `model/reference_ct_slice.npy`
   - [x] Expose `--match-histogram` command-line argument in `live_unet_demo.py`
   - [x] Integrate `skimage.exposure.match_histograms` in the inference path to align incoming CT slices with the training distribution
+
+## Stage 3: OpenAI Gymnasium Environment Wrapper
+
+- [/] **1. Create Gymnasium Environment Wrapper**
+  - [ ] Create `robotic_us_env.py` and implement `RoboticUltrasoundGymEnv` inheriting from `gymnasium.Env`
+  - [ ] Define continuous 6-DOF task-space action space and dictionary observation space
+  - [ ] Integrate robot IK solver and joint motor controller inside `step`
+  - [ ] Implement force sensor reading and safety contact limit checking
+  - [ ] Integrate 2-channel CT and bone segmentation slice extraction
+  - [ ] Integrate the trained `best_model.pth` U-Net model for real-time B-mode US rendering
+  - [ ] Formulate reward function matching image quality and normal contact forces
+- [ ] **2. Verification and Testing**
+  - [ ] Create automated environment verification script `test_gym_env.py`
+  - [ ] Test random agent step execution and print performance benchmarks (FPS)
+  - [ ] Verify safety threshold terminations and output observation shape consistency
