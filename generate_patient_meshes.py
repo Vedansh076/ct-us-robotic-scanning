@@ -131,9 +131,15 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     # Light erosion to remove thin noise speckles on the surface
     body_bin = binary_erosion(body_bin, iterations=1).astype(np.uint8)
 
-    # Marching cubes on the binary body mask (voxel space)
+    # Pad the binary volume with a 1-voxel border of 0s to guarantee a closed mesh
+    body_bin_padded = np.pad(body_bin, 1, mode='constant', constant_values=0)
+
+    # Marching cubes on the padded binary body mask (voxel space)
     t0 = time.time()
-    verts_vox, faces, _, _ = marching_cubes(body_bin, level=0.5, step_size=2)
+    verts_vox, faces, _, _ = marching_cubes(body_bin_padded, level=0.5, step_size=2)
+
+    # Subtract the 1-voxel padding offset to restore original voxel coordinates
+    verts_vox = verts_vox - 1.0
 
     # Convert voxel indices → world mm using the affine
     n = verts_vox.shape[0]
