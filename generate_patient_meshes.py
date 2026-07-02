@@ -101,31 +101,38 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     print(f"{'='*60}")
 
     ct_path   = subj_dir / "ct.nii.gz"
-    body_path = subj_dir / "segmentations" / "body.nii.gz"
     seg_dir   = subj_dir / "segmentations"
 
     if not ct_path.exists():
         print(f"  [SKIP] No ct.nii.gz found in {subj_dir}")
         return False
-    if not body_path.exists():
-        print(f"  [SKIP] No segmentations/body.nii.gz found in {subj_dir}")
+    if not seg_dir.exists():
+        print(f"  [SKIP] No segmentations/ folder found in {subj_dir}")
         return False
 
     # ── Step 1: Load CT + affine ──────────────────────────────────────────────
-    print("  [1/3] Loading CT volume …")
+    print("  [1/3] Loading CT volume ...")
     ct_img   = nib.load(str(ct_path))
+    ct_vol   = np.asarray(ct_img.get_fdata(dtype=np.float32))
     affine   = ct_img.affine.astype(np.float64)
     inv_aff  = np.linalg.inv(affine)
     spacing  = np.array(ct_img.header.get_zooms()[:3], dtype=np.float64)
     ct_shape = list(ct_img.shape[:3])
 
     # ── Step 2: Generate skin mesh ────────────────────────────────────────────
-    print("  [2/3] Generating skin mesh …")
-    t0 = time.time()
-    body_vol = np.asarray(nib.load(str(body_path)).get_fdata(), dtype=np.float32)
-    body_bin = (body_vol > 0.5).astype(np.uint8)
+    # Derive body mask: threshold air (everything > -500 HU is tissue/bone/fluid)
+    # then fill holes using scipy binary_fill_holes applied slice-by-slice
+    print("  [2/3] Deriving body mask from CT and generating skin mesh ...")
+    from scipy.ndimage import binary_fill_holes, binary_erosion
+    body_bin = (ct_vol > -500).astype(np.uint8)
+    # Fill holes slice by slice along axial axis (axis=2) to close body cavity
+    for z in range(body_bin.shape[2]):
+        body_bin[:, :, z] = binary_fill_holes(body_bin[:, :, z]).astype(np.uint8)
+    # Light erosion to remove thin noise speckles on the surface
+    body_bin = binary_erosion(body_bin, iterations=1).astype(np.uint8)
 
     # Marching cubes on the binary body mask (voxel space)
+    t0 = time.time()
     verts_vox, faces, _, _ = marching_cubes(body_bin, level=0.5, step_size=2)
 
     # Convert voxel indices → world mm using the affine

@@ -84,7 +84,7 @@ def download_zip_streaming(url: str, output_dir: Path, n_subjects: int) -> None:
                     print(f"\r[download] {mb:.0f} MB / {total/1e6:.0f} MB  ({pct:.1f}%)", end="", flush=True)
         print(f"\n[download] Download complete: {tmp_zip}")
 
-    print("[extract] Scanning ZIP for subject folders …")
+    print("[extract] Scanning ZIP for subject folders ...")
     with zipfile.ZipFile(tmp_zip, "r") as zf:
         all_names = zf.namelist()
 
@@ -108,15 +108,22 @@ def download_zip_streaming(url: str, output_dir: Path, n_subjects: int) -> None:
             # Extract only files belonging to this subject
             subj_files = [n for n in all_names if n.startswith(subj + "/")]
             for member in subj_files:
-                # Strip the top-level subject folder prefix so files land in subj_out
+                # Strip the top-level subject folder prefix
                 rel = "/".join(member.split("/")[1:])
-                if not rel:
+                if not rel or rel.endswith("/"):
+                    # Skip bare directory entries in the ZIP
                     continue
                 dest = subj_out / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                except FileExistsError:
+                    # On Windows, mkdir can fail if a path component already
+                    # exists as a file; use os.makedirs as a fallback
+                    import os
+                    os.makedirs(str(dest.parent), exist_ok=True)
                 with zf.open(member) as src, open(dest, "wb") as dst:
                     dst.write(src.read())
-            print(f"[extract] ✓ {subj}  ({len(subj_files)} files)")
+            print(f"[extract] [OK] {subj}  ({len(subj_files)} files)")
 
     print(f"\n[done] {n_subjects} subjects extracted to: {output_dir}")
     print(f"[info]  Temporary ZIP kept at {tmp_zip} (delete manually to free space)")

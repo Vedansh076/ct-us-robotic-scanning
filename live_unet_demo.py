@@ -249,7 +249,10 @@ def parse_args() -> argparse.Namespace:
         description="Live PyBullet probe -> CT slice -> U-Net/Pix2Pix -> ultrasound demo."
     )
     parser.add_argument("--model", choices=("unet", "pix2pix"), default="unet")
-    parser.add_argument("--subject", type=str, default="TCGA-QQ-A8VG")
+    parser.add_argument("--subject", type=str, default="totalseg_patients/s0058",
+                        help="Subject folder with CT volume and patient_skin.obj. "
+                             "TotalSegmentator subjects: totalseg_patients/s0011..s0310. "
+                             "Legacy TCGA subjects: TCGA-QQ-A8VG etc.")
     parser.add_argument("--checkpoint", type=str, default="model/runs/exp1_2IP/exp1/best_model.pth",
                         help="Path to the model checkpoint (default: exp1_2IP/exp1)")
     parser.add_argument("--base-features", type=int, default=64)
@@ -322,32 +325,53 @@ def resolve_subject_dir(subject: str) -> Path:
 def load_ct_subject(subject_dir: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if not _NIB_OK:
         raise ImportError("nibabel required for CT loading.")
-    ct_path = subject_dir / "CT.nii"
-    if not ct_path.exists():
-        raise FileNotFoundError(f"Missing CT.nii in {subject_dir}")
-    ct_img = nib.load(str(ct_path))
-    ct_volume = ct_img.get_fdata()
 
-    # Try to load label volume, otherwise fallback to thresholding
+    # ── CT volume: support both TCGA (CT.nii) and TotalSegmentator (ct.nii.gz) ──
+    ct_path = None
+    for candidate in ["CT.nii", "CT.nii.gz", "ct.nii.gz", "ct.nii"]:
+        p = subject_dir / candidate
+        if p.exists():
+            ct_path = p
+            break
+    if ct_path is None:
+        raise FileNotFoundError(f"No CT volume found in {subject_dir}. "
+                                "Expected CT.nii, CT.nii.gz, or ct.nii.gz")
+    ct_img = nib.load(str(ct_path))
+    ct_volume = ct_img.get_fdata(dtype=np.float32)
+
+    # ── Label/bone volume: priority order ────────────────────────────────────
+    # 1. TotalSegmentator pre-merged bone mask (best quality)
+    # 2. Legacy label files from TCGA pipeline
+    # 3. HU-threshold fallback
     label_volume = None
-    for name in ["Labels.nii", "Label.nii", "segmentation.nii", "segmentation.nii.gz", "labels.nii", "labels.nii.gz"]:
+    label_candidates = [
+        "bone_label.nii.gz",       # TotalSegmentator merged bone mask
+        "bone_label.nii",
+        "Labels.nii",              # TCGA legacy
+        "Label.nii",
+        "segmentation.nii",
+        "segmentation.nii.gz",
+        "labels.nii",
+        "labels.nii.gz",
+    ]
+    for name in label_candidates:
         path = subject_dir / name
         if path.exists():
             try:
-                label_volume = nib.load(str(path)).get_fdata()
-                print(f"[load] Loaded bone label volume from {path}")
+                label_volume = nib.load(str(path)).get_fdata(dtype=np.float32)
+                print(f"[load] Loaded bone label volume from {path.name}")
                 break
             except Exception as e:
                 print(f"[load] Failed to load label volume {path}: {e}")
 
     if label_volume is None:
-        print("[load] Label volume not found. Generating dummy bone label by thresholding CT (> 200 HU).")
-        # Threshold at 200 HU to extract bone boundaries
+        print("[load] No label volume found — generating bone mask by thresholding CT (> 200 HU).")
         label_volume = (ct_volume > 200.0).astype(np.float32)
 
     spacing = np.array(ct_img.header.get_zooms()[:3], dtype=np.float32)
     volume_center = (np.array(ct_volume.shape, dtype=np.float32) - 1) / 2
     return ct_volume, label_volume, spacing, volume_center
+
 
 
 def select_device(device_arg: str) -> torch.device:
@@ -925,12 +949,12 @@ def create_registered_body_mesh(subject_dir: Path, bed_top_z: float, mesh_scale:
     if not mesh_path.exists():
         raise FileNotFoundError(
             f"Patient mesh not found: {mesh_path}\n"
-            "Run:  python extract_patient_mesh.py --subject " + str(subject_dir)
+            "Run:  python generate_patient_meshes.py --input-dir totalseg_patients --subject " + subject_dir.name
         )
     if not meta_path.exists():
         raise FileNotFoundError(
             f"Registration metadata not found: {meta_path}\n"
-            "Run:  python extract_patient_mesh.py --subject " + str(subject_dir)
+            "Run:  python generate_patient_meshes.py --input-dir totalseg_patients --subject " + subject_dir.name
         )
 
     reg_meta = load_registration_meta(meta_path)
