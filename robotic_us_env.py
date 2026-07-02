@@ -31,7 +31,9 @@ from live_unet_demo import (
     PROBE_QUAT_FROM_EE,
     select_device,
     resolve_subject_dir,
-    load_ct_subject
+    load_ct_subject,
+    update_probe_model,
+    get_probe_pose_from_ee
 )
 from extract_slice import extract_slice
 
@@ -160,6 +162,11 @@ class RoboticUltrasoundGymEnv(gym.Env):
         ee_state = p.getLinkState(self.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
         ee_pos = np.array(ee_state[4], dtype=np.float32)
         ee_orn = np.array(ee_state[5], dtype=np.float32)
+        
+        # Update probe visual model position
+        probe_pos_vis, quaternion_xyzw, probe_contact_position = get_probe_pose_from_ee(
+            ee_pos, ee_orn)
+        update_probe_model(self.probe_body_id, probe_contact_position, quaternion_xyzw)
         
         # 2. Estimate contact force via raycasting
         found_body, surface_z = raycast_skin_surface(ee_pos[0], ee_pos[1], self.body_id)
