@@ -47,7 +47,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
                  device="auto",
                  render_mode="human",
                  max_episode_steps=200,
-                 mesh_scale=1.5,
+                 mesh_scale=1.0,
                  size=256,
                  pixel_spacing=1.0,
                  base_features=64):
@@ -121,8 +121,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.step_counter = 0
         self.no_contact_counter = 0
         
-        # Initial home position above the patient's chest
-        self.home_pos = np.array([self.body_center[0], self.body_center[1], self.bed_top_z + 0.35], dtype=np.float32)
+        # Initial home orientation
         self.home_orn = np.array(p.getQuaternionFromEuler([np.pi, 0, 0]), dtype=np.float32)
         
     def reset(self, seed=None, options=None):
@@ -137,6 +136,15 @@ class RoboticUltrasoundGymEnv(gym.Env):
             p.resetJointState(self.panda_id, jid, v)
         for fj in (9, 10):
             p.resetJointState(self.panda_id, fj, 0.04)
+            
+        # Calculate dynamic home position snapped to the patient's skin surface (chest center)
+        tx, ty = self.body_center[0], self.body_center[1]
+        found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
+        if found_body:
+            # Settle the probe exactly touching the skin surface with 8mm standoff
+            self.home_pos = np.array([tx, ty, surface_z + 0.008 + 0.18], dtype=np.float32)
+        else:
+            self.home_pos = np.array([tx, ty, self.bed_top_z + 0.35], dtype=np.float32)
             
         # Drive robot to initial target pose and step a few times to settle
         drive_panda_to_pose(self.panda_id, self.home_pos, self.home_orn)
