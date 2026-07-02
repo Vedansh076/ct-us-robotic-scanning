@@ -4,6 +4,18 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
 
 ## Action Items
 
+## Stage 0: TotalSegmentator Patient Data Pipeline
+
+- [x] **0. Download & Process TotalSegmentator CT Subjects**
+  - [x] Write `download_totalseg.py` to stream 5 subjects from Zenodo (3.24 GB ZIP, cached for reuse)
+  - [x] Write `generate_patient_meshes.py` to derive body mask from CT, run marching cubes, Laplacian smooth, export `patient_skin.obj`
+  - [x] Merge all 49 bone structure masks into `bone_label.nii.gz` per subject
+  - [x] Save `registration_meta.json` (affine, inv_affine, spacing, centroid offset) per subject
+  - [x] Fix extraction bug: Windows bogus file vs directory for `segmentations/`; re-extracted s0011 (49/49 bones)
+  - [x] Update `load_ct_subject()` in `live_unet_demo.py` to support `ct.nii.gz` + `bone_label.nii.gz` (TotalSegmentator format)
+  - [x] Update default `--subject` to `totalseg_patients/s0058`
+  - [x] **Subjects ready:** s0011, s0058, s0223, s0250, s0310 (all 5 have mesh + bone + meta)
+
 - [x] **1. Consolidate Coordinate Registration Math**
   - [x] Replace root `extract_slice.py` with the registration-aware version from `research_registration/extract_slice.py`
   - [x] Copy `registration.py` to root and integrate `compute_registered_ct_center` and `load_registration_meta` into `live_unet_demo.py`
