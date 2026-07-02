@@ -143,8 +143,24 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     print("  [3/3] Deriving body mask and generating skin mesh ...")
     from scipy.ndimage import label, binary_fill_holes, binary_erosion
     body_bin = (ct_vol > -500).astype(np.uint8)
+
+    # First, seal the boundary slices by filling holes on the outer 2D boundary planes.
+    # This caps internal cavities (lungs, stomach, bowel) that are open to the scan boundaries,
+    # preventing them from leaking to the outside during full 3D/2D hole filling.
+    body_bin[:, :, 0] = binary_fill_holes(body_bin[:, :, 0]).astype(np.uint8)
+    body_bin[:, :, -1] = binary_fill_holes(body_bin[:, :, -1]).astype(np.uint8)
+    body_bin[:, 0, :] = binary_fill_holes(body_bin[:, 0, :]).astype(np.uint8)
+    body_bin[:, -1, :] = binary_fill_holes(body_bin[:, -1, :]).astype(np.uint8)
+    body_bin[0, :, :] = binary_fill_holes(body_bin[0, :, :]).astype(np.uint8)
+    body_bin[-1, :, :] = binary_fill_holes(body_bin[-1, :, :]).astype(np.uint8)
+
+    # Run hole filling along all three orthogonal directions to fill all internal cavities completely
     for z in range(body_bin.shape[2]):
         body_bin[:, :, z] = binary_fill_holes(body_bin[:, :, z]).astype(np.uint8)
+    for y in range(body_bin.shape[1]):
+        body_bin[:, y, :] = binary_fill_holes(body_bin[:, y, :]).astype(np.uint8)
+    for x in range(body_bin.shape[0]):
+        body_bin[x, :, :] = binary_fill_holes(body_bin[x, :, :]).astype(np.uint8)
 
     # Clean body mask: select only the component overlapping with the bone segmentation
     # to completely eliminate scanner bed/table structures
@@ -169,6 +185,9 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     # Marching cubes on the padded binary body mask (voxel space)
     t0 = time.time()
     verts_vox, faces, _, _ = marching_cubes(body_bin_padded, level=0.5, step_size=2)
+
+    # Invert winding order of faces to flip normals outwards (skimage gradient points inwards)
+    faces = faces[:, [0, 2, 1]]
 
     # Subtract the 1-voxel padding offset to restore original voxel coordinates
     verts_vox = verts_vox - 1.0
