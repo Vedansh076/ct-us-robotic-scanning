@@ -766,12 +766,43 @@ def draw_contact_face_debug(probe_position, probe_quaternion, item_ids):
 
 def raycast_probe(probe_position, quaternion_xyzw, body_id, ray_length):
     beam = get_probe_beam_direction(quaternion_xyzw)
+    # Start raycast 5cm above the probe tip (opposite to beam) to handle skin penetration
+    offset = 0.05
+    ray_start = probe_position - beam * offset
     ray_to = probe_position + beam * ray_length
-    result = p.rayTest(probe_position.tolist(), ray_to.tolist())[0]
+    result = p.rayTest(ray_start.tolist(), ray_to.tolist())[0]
+    
     hit = result[0] == body_id
     hit_pos = np.array(result[3], dtype=np.float32) if hit else None
-    hit_dist = float(result[2] * ray_length) if hit else None
+    
+    total_length = ray_length + offset
+    hit_dist = float(result[2] * total_length - offset) if hit else None
     return hit, ray_to.astype(np.float32), hit_pos, hit_dist
+
+
+def raycast_skin_surface(x: float, y: float, body_id: int, start_z: float = 1.25, end_z: float = 0.65) -> tuple[bool, float]:
+    """Robust surface height check by multi-step raycasting to ignore robot arm/probe geometry blocking the ray."""
+    found_body = False
+    surface_z = end_z
+    attempts = 0
+    current_start = start_z
+    while current_start > end_z and attempts < 10:
+        attempts += 1
+        rr = p.rayTest([x, y, current_start], [x, y, end_z])[0]
+        hit_id = rr[0]
+        if hit_id == body_id:
+            surface_z = rr[3][2]
+            found_body = True
+            break
+        elif hit_id == -1:
+            break
+        else:
+            # Hit something else (like the robot arm or hand).
+            # Resume casting from slightly below the hit point
+            hit_z = rr[3][2]
+            current_start = hit_z - 0.001
+    return found_body, surface_z
+
 
 
 def draw_debug_ray(probe_position, ray_to, hit_position, hit, line_id, point_id):
@@ -959,15 +990,18 @@ def create_registered_body_mesh(subject_dir: Path, bed_top_z: float, mesh_scale:
 
     reg_meta = load_registration_meta(meta_path)
 
-    # The mesh vertices are centered: horizontal center at origin, bottom at z=0.
-    # Place the mesh on the bed: bottom sits on mattress top + small gap.
+    mesh_min, mesh_max = read_obj_bounds(mesh_path)
+    # The patient is rotated by -90 deg around X, so the back (which was local min Y)
+    # becomes the bottom along world Z. Place the patient so their back rests on mattress.
+    body_z = bed_top_z - mesh_min[1] * mesh_scale[1] + 0.01
     body_position = np.array([
         float(BED_CENTER[0]),
         float(BED_CENTER[1]),
-        float(bed_top_z + 0.01),
+        float(body_z),
     ], dtype=np.float64)
-    body_orientation_quat = p.getQuaternionFromEuler([0, 0, 0])
-    body_orientation_matrix = np.eye(3, dtype=np.float64)
+    # Rotate -90 degrees around X to lie flat on back (CT Y maps to world Z, CT Z maps to world -Y)
+    body_orientation_quat = p.getQuaternionFromEuler([-np.pi / 2, 0, 0])
+    body_orientation_matrix = np.array(p.getMatrixFromQuaternion(body_orientation_quat)).reshape(3, 3)
 
     col = p.createCollisionShape(
         p.GEOM_MESH, fileName=str(mesh_path),
@@ -1316,9 +1350,8 @@ def main() -> None:
         perq   = np.array(p.getQuaternionFromEuler([manual_roll, manual_pitch, manual_yaw]), dtype=np.float32)
         target_orientation = multiply_quaternions(base_q, perq)
         if snap_on:
-            rr = p.rayTest([tx, ty, 1.25], [tx, ty, 0.65])[0]
-            if rr[0] == body_id:
-                surface_z = rr[3][2]
+            found_body, surface_z = raycast_skin_surface(tx, ty, body_id)
+            if found_body:
                 rm = np.array(p.getMatrixFromQuaternion(target_orientation.tolist())).reshape(3, 3)
                 target_position = np.array([tx, ty,
                     surface_z + desired_probe_standoff - 0.18 * rm[2, 2]],
@@ -1509,10 +1542,8 @@ def main() -> None:
             if is_auto:
                 target_position, target_orientation, probe_roll, probe_pitch = scan_target_pose(
                     elapsed, body_center, body_extent, args.scan_speed, body_footprint_margin=args.body_margin)
-                rr = p.rayTest([float(target_position[0]), float(target_position[1]), 1.25],
-                               [float(target_position[0]), float(target_position[1]), 0.65])[0]
-                if rr[0] == body_id:
-                    surface_z = rr[3][2]
+                found_body, surface_z = raycast_skin_surface(float(target_position[0]), float(target_position[1]), body_id)
+                if found_body:
                     rm = np.array(p.getMatrixFromQuaternion(target_orientation.tolist())).reshape(3, 3)
                     target_position[2] = (surface_z + desired_probe_standoff
                                           + probe_height_correction - 0.18 * rm[2, 2])
@@ -1544,9 +1575,8 @@ def main() -> None:
                 perq   = np.array(p.getQuaternionFromEuler([manual_roll, manual_pitch, manual_yaw]), dtype=np.float32)
                 target_orientation = multiply_quaternions(base_q, perq)
                 if snap_on and not z_locked:
-                    rr = p.rayTest([tx, ty, 1.25], [tx, ty, 0.65])[0]
-                    if rr[0] == body_id:
-                        surface_z = rr[3][2]
+                    found_body, surface_z = raycast_skin_surface(tx, ty, body_id)
+                    if found_body:
                         rm = np.array(p.getMatrixFromQuaternion(target_orientation.tolist())).reshape(3, 3)
                         target_position = np.array([tx, ty,
                             surface_z + desired_probe_standoff + probe_height_correction + (manual_z - 1.10) - 0.18 * rm[2, 2]],

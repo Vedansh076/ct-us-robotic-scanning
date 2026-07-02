@@ -119,15 +119,47 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     spacing  = np.array(ct_img.header.get_zooms()[:3], dtype=np.float64)
     ct_shape = list(ct_img.shape[:3])
 
-    # ── Step 2: Generate skin mesh ────────────────────────────────────────────
+    # ── Step 2: Merge bone segmentation masks first (used for component filtering) ──
+    print("  [2/3] Merging bone segmentation masks ...")
+    bone_vol = np.zeros(ct_shape, dtype=np.uint8)
+    found_bones = 0
+    for bone_name in BONE_STRUCTURES:
+        bone_path = seg_dir / f"{bone_name}.nii.gz"
+        if bone_path.exists():
+            bv = np.asarray(nib.load(str(bone_path)).get_fdata(), dtype=np.float32)
+            bone_vol |= (bv > 0.5).astype(np.uint8)
+            found_bones += 1
+    print(f"    Merged {found_bones}/{len(BONE_STRUCTURES)} bone structures")
+
+    # Save bone label volume
+    bone_nii = nib.Nifti1Image(bone_vol, affine)
+    bone_out = subj_dir / "bone_label.nii.gz"
+    nib.save(bone_nii, str(bone_out))
+    print(f"    Saved: {bone_out}")
+
+    # ── Step 3: Generate skin mesh ────────────────────────────────────────────
     # Derive body mask: threshold air (everything > -500 HU is tissue/bone/fluid)
-    # then fill holes using scipy binary_fill_holes applied slice-by-slice
-    print("  [2/3] Deriving body mask from CT and generating skin mesh ...")
-    from scipy.ndimage import binary_fill_holes, binary_erosion
+    # then fill holes slice-by-slice
+    print("  [3/3] Deriving body mask and generating skin mesh ...")
+    from scipy.ndimage import label, binary_fill_holes, binary_erosion
     body_bin = (ct_vol > -500).astype(np.uint8)
-    # Fill holes slice by slice along axial axis (axis=2) to close body cavity
     for z in range(body_bin.shape[2]):
         body_bin[:, :, z] = binary_fill_holes(body_bin[:, :, z]).astype(np.uint8)
+
+    # Clean body mask: select only the component overlapping with the bone segmentation
+    # to completely eliminate scanner bed/table structures
+    labeled, num_features = label(body_bin)
+    bone_labels = labeled[bone_vol > 0]
+    non_zero_labels = bone_labels[bone_labels > 0]
+    if len(non_zero_labels) > 0:
+        patient_label = np.bincount(non_zero_labels).argmax()
+        body_bin = (labeled == patient_label).astype(np.uint8)
+    else:
+        # Fallback to largest component
+        sizes = np.bincount(labeled.ravel())
+        if len(sizes) > 1:
+            body_bin = (labeled == sizes[1:].argmax() + 1).astype(np.uint8)
+
     # Light erosion to remove thin noise speckles on the surface
     body_bin = binary_erosion(body_bin, iterations=1).astype(np.uint8)
 
@@ -160,22 +192,6 @@ def process_subject(subj_dir: Path, smooth_iter: int, decimate: bool) -> bool:
     export_obj(skin_path, verts_centred, faces)
     print(f"    Saved: {skin_path}  ({len(verts_m):,} verts, {len(faces):,} faces, {time.time()-t0:.1f}s)")
 
-    # ── Step 3: Generate bone label volume ───────────────────────────────────
-    print("  [3/3] Merging bone segmentation masks …")
-    bone_vol = np.zeros(ct_shape, dtype=np.uint8)
-    found_bones = 0
-    for bone_name in BONE_STRUCTURES:
-        bone_path = seg_dir / f"{bone_name}.nii.gz"
-        if bone_path.exists():
-            bv = np.asarray(nib.load(str(bone_path)).get_fdata(), dtype=np.float32)
-            bone_vol |= (bv > 0.5).astype(np.uint8)
-            found_bones += 1
-
-    print(f"    Merged {found_bones}/{len(BONE_STRUCTURES)} bone structures")
-    bone_nii = nib.Nifti1Image(bone_vol, affine)
-    bone_out  = subj_dir / "bone_label.nii.gz"
-    nib.save(bone_nii, str(bone_out))
-    print(f"    Saved: {bone_out}")
 
     # ── Step 4: Save registration_meta.json ───────────────────────────────────
     meta = {
