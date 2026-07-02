@@ -25,7 +25,9 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ### Bug 4: Raycast Occlusion & Hollow Torso Meshes [RESOLVED]
 * **Raycast Occlusion:** The vertical snap raycasts were blocked by the robot arm/hand geometry, causing the probe to fail to snap and get buried inside the torso mesh, resulting in constant "hit: miss" status. Resolved by implementing a multi-step `raycast_skin_surface` function that ignores robot links, and offsetting `raycast_probe` 5 cm above the tip to handle penetration/compression.
-* **Hollow Torso Meshes:** Torso meshes generated from CT volumes were open shells at the borders. Resolved by zero-padding the binary body volume before marching cubes in `generate_patient_meshes.py`, producing completely closed, solid manifold torso meshes.
+* **Hollow Torso Meshes:** Torso meshes generated from CT volumes were open shells at the borders and had inverted normals that made them transparent under PyBullet back-face culling. Resolved by:
+  1. Boundary-sealing and zero-padding the binary body volume before marching cubes in `generate_patient_meshes.py` to produce mathematically closed, solid manifold torso meshes.
+  2. Inverting the triangle winding order (`faces[:, [0, 2, 1]]`) to orient all normals outwards, making the outer skin and flat caps fully opaque and visible.
 
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
 * **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.

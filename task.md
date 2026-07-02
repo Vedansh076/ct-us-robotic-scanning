@@ -15,6 +15,7 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Update `load_ct_subject()` in `live_unet_demo.py` to support `ct.nii.gz` + `bone_label.nii.gz` (TotalSegmentator format)
   - [x] Update default `--subject` to `totalseg_patients/s0058`
   - [x] **Bug fix:** Pad binary body volume with 0s before marching cubes to guarantee completely closed skin meshes (no hollow open shells)
+  - [x] **Bug fix:** Invert mesh faces winding order to resolve back-face culling transparency (hollow look)
   - [x] **Bug fix:** Implement multi-step `raycast_skin_surface` to bypass robot geometry and avoid probe occlusion/misses
   - [x] **Bug fix:** Offset `raycast_probe` 5 cm above probe tip to handle skin penetration/compression cleanly
   - [x] **Subjects ready:** s0011, s0058, s0223, s0250, s0310 (all 5 have closed mesh + bone + meta)
