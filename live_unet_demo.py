@@ -1629,9 +1629,9 @@ def main() -> None:
             if hit_distance is not None:
                 force = compute_probe_contact_force(hit_distance, desired_probe_standoff)
                 if force > 1.0:
-                    probe_height_correction = max(probe_height_correction - 0.004, -0.04)
+                    probe_height_correction = min(probe_height_correction + 0.004, 0.04)
                 elif force < -0.5:
-                    probe_height_correction = min(probe_height_correction + 0.003, 0.025)
+                    probe_height_correction = max(probe_height_correction - 0.003, -0.025)
                 else:
                     probe_height_correction *= 0.99
                 if frame_counter % 30 == 0:
