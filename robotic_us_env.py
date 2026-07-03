@@ -47,7 +47,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
                  subject_dir="totalseg_patients/s0058",
                  checkpoint_path="model/runs/exp1_2IP/exp1/best_model.pth",
                  device="auto",
-                 render_mode="human",
+                 render_mode="rgb_array",
                  max_episode_steps=200,
                  mesh_scale=1.0,
                  size=256,
