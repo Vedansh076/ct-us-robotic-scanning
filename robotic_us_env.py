@@ -213,12 +213,16 @@ class RoboticUltrasoundGymEnv(gym.Env):
                 self.ct_volume.shape, mesh_scale=self.mesh_scale
             )
             
-            ct_slice = extract_slice(
-                self.ct_volume, center=ct_center, quaternion=ee_orn,
-                spacing=self.spacing, size=self.slice_size, pixel_spacing=self.pixel_spacing,
-                inv_affine=self.reg_meta['inv_affine'], mesh_scale=self.mesh_scale,
-                body_orientation_matrix=self.reg_body_orientation_matrix
-            )
+            # Only extract CT slice if U-Net is needed; skip for Strategy 2 (mask-based)
+            if not self.skip_unet:
+                ct_slice = extract_slice(
+                    self.ct_volume, center=ct_center, quaternion=ee_orn,
+                    spacing=self.spacing, size=self.slice_size, pixel_spacing=self.pixel_spacing,
+                    inv_affine=self.reg_meta['inv_affine'], mesh_scale=self.mesh_scale,
+                    body_orientation_matrix=self.reg_body_orientation_matrix
+                )
+            else:
+                ct_slice = None
             
             seg_slice = extract_slice(
                 self.label_volume, center=ct_center, quaternion=ee_orn,
