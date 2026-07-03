@@ -381,10 +381,18 @@ def select_device(device_arg: str) -> torch.device:
         dev = torch.device(device_arg)
     
     if dev.type == "cpu":
+        # On CPU: limit PyTorch threads to 1 to prevent OpenMP from saturating
+        # all cores and starving the PyBullet physics loop / OpenCV GUI.
         torch.set_num_threads(1)
         torch.set_num_interop_threads(1)
-        print("[device] CPU mode detected: limited PyTorch to 1 CPU thread to prevent simulator starvation.")
+        print("[device] CPU mode: limited PyTorch to 1 thread to prevent simulator starvation.")
+    else:
+        # On GPU: inference runs on the CUDA device — CPU cores stay fully free
+        # for PyBullet and the OpenCV GUI. No thread throttling needed.
+        gpu_name = torch.cuda.get_device_name(dev)
+        print(f"[device] GPU mode detected ({gpu_name}): CPU threads unrestricted.")
     return dev
+
 
 
 def load_unet(checkpoint_path: Path, device: torch.device,
