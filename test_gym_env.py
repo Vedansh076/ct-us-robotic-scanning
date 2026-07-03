@@ -31,7 +31,8 @@ def main():
         checkpoint_path="model/runs/exp1_2IP/exp1/best_model.pth",
         device="auto",
         render_mode=render_mode,
-        max_episode_steps=200
+        max_episode_steps=200,
+        skip_unet=False
     )
     print(f"  Initialized successfully in {time.time() - t0:.2f}s")
     

@@ -52,7 +52,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
                  mesh_scale=1.0,
                  size=256,
                  pixel_spacing=1.0,
-                 base_features=64):
+                 base_features=64,
+                 skip_unet=True):
         super().__init__()
         
         self.subject_dir = Path(resolve_subject_dir(subject_dir))
@@ -64,6 +65,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.slice_size = size
         self.pixel_spacing = pixel_spacing
         self.base_features = base_features
+        self.skip_unet = skip_unet
         
         # Load device
         self.device = select_device(device)
@@ -72,7 +74,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.ct_volume, self.label_volume, self.spacing, self.volume_center = load_ct_subject(self.subject_dir)
         
         # Load U-Net Model (sigmoid)
-        self.model = load_unet(self.checkpoint_path, self.device, base_features=self.base_features, dropout=0.0)
+        if not self.skip_unet:
+            self.model = load_unet(self.checkpoint_path, self.device, base_features=self.base_features, dropout=0.0)
+        else:
+            self.model = None
         
         # Action space: 6-DOF continuous relative controls in [-1, 1]
         # [dx, dy, dz, droll, dpitch, dyaw]
@@ -224,20 +229,22 @@ class RoboticUltrasoundGymEnv(gym.Env):
             
             seg_slice = (seg_slice > 0.5).astype(np.float32)
             
-            # Predict ultrasound image
-            us_image = predict_ultrasound(
-                self.model, ct_slice, seg_slice, self.device, is_pix2pix=False, enhance=True
-            )
+            # Predict ultrasound or use raw bone mask as observation
+            if self.skip_unet:
+                us_image_uint8 = (seg_slice * 255).astype(np.uint8)
+            else:
+                us_image = predict_ultrasound(
+                    self.model, ct_slice, seg_slice, self.device, is_pix2pix=False, enhance=True
+                )
+                us_image_uint8 = (us_image * 255).astype(np.uint8)
             
             # Save for reward calculation
             self.last_seg_slice = seg_slice
             self.last_ct_slice = ct_slice
         else:
-            us_image = np.zeros((self.slice_size, self.slice_size), dtype=np.float32)
+            us_image_uint8 = np.zeros((self.slice_size, self.slice_size), dtype=np.uint8)
             self.last_seg_slice = np.zeros((self.slice_size, self.slice_size), dtype=np.float32)
             self.last_ct_slice = np.zeros((self.slice_size, self.slice_size), dtype=np.float32)
-            
-        us_image_uint8 = (us_image * 255).astype(np.uint8)
         
         obs = {
             "image": us_image_uint8,
