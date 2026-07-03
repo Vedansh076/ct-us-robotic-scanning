@@ -38,11 +38,95 @@ from live_unet_demo import (
 from extract_slice import extract_slice
 
 class RoboticUltrasoundGymEnv(gym.Env):
-    """
-    Gymnasium Environment for Robotic Ultrasound Scanning using TotalSegmentator CT data.
+    """Gymnasium environment for autonomous robotic ultrasound scanning.
+
+    This environment wraps a PyBullet physics simulation of a Franka Emika Panda
+    robot arm equipped with a curved ultrasound probe scanning over a 3D patient
+    skin mesh. At each step, the probe's contact point is mapped to a voxel index
+    inside a TotalSegmentator CT volume, an oblique 2D slice is extracted using
+    trilinear interpolation, and (optionally) a U-Net synthesizes a B-mode
+    ultrasound image from the CT + bone-mask input.
+
+    The environment follows the standard OpenAI Gymnasium interface (``reset``,
+    ``step``, ``close``) and is directly compatible with Stable-Baselines3.
+
+    Action Space
+    ------------
+    ``spaces.Box(low=-1, high=1, shape=(6,), dtype=float32)``
+
+    Each element is a normalized continuous control:
+
+    =========  ===========  ==============================
+    Index      Dimension    Physical Scale
+    =========  ===========  ==============================
+    0          dx           ×0.01 m  (±1 cm per step)
+    1          dy           ×0.01 m  (±1 cm per step)
+    2          dz           ×0.01 m  (±1 cm per step)
+    3          d_roll       ×0.05 rad (±~2.9° per step)
+    4          d_pitch      ×0.05 rad (±~2.9° per step)
+    5          d_yaw        ×0.05 rad (±~2.9° per step)
+    =========  ===========  ==============================
+
+    Observation Space
+    -----------------
+    ``spaces.Dict`` with keys:
+
+    - ``"image"``: ``(size, size)`` uint8 — synthesized B-mode ultrasound frame
+      (or binary bone mask when ``skip_unet=True``).
+    - ``"force"``: ``(1,)`` float32 — estimated normal contact force in Newtons,
+      in range [0, 15].
+    - ``"pose"``: ``(7,)`` float32 — end-effector pose as
+      [x, y, z, qx, qy, qz, qw], in range [−5, 5].
+
+    Reward
+    ------
+    Three components are summed every step:
+
+    - **Force reward** (``R_f``): +1 for good contact (2–8 N), −2 for no contact,
+      proportional penalty for over-pressure (>8 N).
+    - **Bone reward** (``R_b``): +1.5 bonus when bone pixels are visible in the
+      segmentation slice (>5 positive pixels).
+    - **Smoothness penalty** (``R_a``): −0.1 × ‖action‖² to discourage jerk.
+
+    Termination
+    -----------
+    - ``terminated=True`` if contact force exceeds **12 N** (patient safety limit).
+    - ``terminated=True`` if no contact for **30 consecutive steps**.
+    - ``truncated=True`` after ``max_episode_steps`` steps.
+
+    Parameters
+    ----------
+    subject_dir : str
+        Path to the TotalSegmentator subject folder. Must contain ``ct.nii.gz``,
+        ``bone_label.nii.gz``, ``patient_skin.obj``, and
+        ``registration_meta.json``.
+    checkpoint_path : str
+        Path to the pre-trained U-Net checkpoint (``best_model.pth``). Ignored
+        when ``skip_unet=True``.
+    device : str
+        PyTorch device for U-Net inference. ``"auto"`` selects CUDA if available.
+    render_mode : str
+        ``"human"`` opens the PyBullet GUI; ``"rgb_array"`` runs headless (faster,
+        suitable for RL training).
+    max_episode_steps : int
+        Maximum number of steps before the episode is truncated. Default: 200.
+    mesh_scale : float
+        Uniform scale factor applied to the patient skin mesh in PyBullet.
+        The registration pipeline automatically compensates for this. Default: 1.0.
+    size : int
+        Height and width (pixels) of the output ultrasound image. Default: 256.
+    pixel_spacing : float
+        Physical resolution of each image pixel in mm. Default: 1.0 mm/pixel.
+    base_features : int
+        U-Net channel width at the first encoder level (doubles each level).
+        Must match the checkpoint. Default: 64.
+    skip_unet : bool
+        If ``True``, bypasses U-Net inference entirely and uses the binary bone
+        segmentation mask directly as the ``"image"`` observation. This mode runs
+        at ~440 FPS and is used for fast RL training (Strategy 2). Default: True.
     """
     metadata = {"render_modes": ["human", "rgb_array"]}
-    
+
     def __init__(self,
                  subject_dir="totalseg_patients/s0058",
                  checkpoint_path="model/runs/exp1_2IP/exp1/best_model.pth",
@@ -132,6 +216,27 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.home_orn = np.array(p.getQuaternionFromEuler([np.pi, 0, 0]), dtype=np.float32)
         
     def reset(self, seed=None, options=None):
+        """Reset the environment to a canonical start state.
+
+        Dynamically finds the skin surface Z at the patient mesh centroid via
+        raycasting, drives the robot to a high approach pose using IK, then
+        lowers it to 8 mm above the surface. Physics is stepped 60 times to
+        allow the arm to settle before the first observation is collected.
+
+        Parameters
+        ----------
+        seed : int, optional
+            Random seed for reproducibility (passed to the Gymnasium base class).
+        options : dict, optional
+            Unused. Reserved for future configuration overrides.
+
+        Returns
+        -------
+        obs : dict
+            Initial observation (image, force, pose).
+        info : dict
+            Empty info dict (required by Gymnasium API).
+        """
         super().reset(seed=seed)
         
         self.step_counter = 0
@@ -170,6 +275,29 @@ class RoboticUltrasoundGymEnv(gym.Env):
         return obs, info
         
     def _get_obs(self):
+        """Construct the current observation dictionary.
+
+        Performs three operations in sequence:
+
+        1. **Pose**: Reads the EE link world position and orientation quaternion.
+        2. **Force**: Raycasts from the probe tip to estimate skin contact force.
+           A linear spring model converts penetration depth to force in Newtons.
+        3. **Image**: If the probe is in contact (hit_distance ≤ 5 cm), maps the
+           probe tip world position to a CT voxel using
+           ``compute_registered_ct_center()``, extracts an oblique CT slice and a
+           bone segmentation slice via ``extract_slice()``, and either:
+           - Runs U-Net inference to produce a synthetic B-mode ultrasound image
+             (``skip_unet=False``), or
+           - Binarizes the bone segmentation mask directly (``skip_unet=True``).
+           If the probe is not in contact, a black image is returned.
+
+        Returns
+        -------
+        obs : dict with keys:
+            - ``"image"``: (size, size) uint8 — synthetic US image or bone mask.
+            - ``"force"``: (1,) float32 — estimated contact force in Newtons.
+            - ``"pose"``: (7,) float32 — [x, y, z, qx, qy, qz, qw].
+        """
         # 1. Get probe pose (PANDA_EE_LINK state)
         ee_state = p.getLinkState(self.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
         ee_pos = np.array(ee_state[4], dtype=np.float32)
@@ -258,6 +386,38 @@ class RoboticUltrasoundGymEnv(gym.Env):
         return obs
         
     def step(self, action):
+        """Apply a 6-DOF action and advance the simulation by one step.
+
+        Action decoding:
+          - ``action[:3]`` → position delta, scaled ×0.01 m (±1 cm per axis).
+          - ``action[3:]`` → orientation delta in Euler angles, scaled ×0.05 rad.
+
+        The target EE position is clamped to the mattress bounding box (±45 cm
+        in X, ±80 cm in Y). Euler angles are clamped to prevent gimbal flips
+        (roll kept near π for a downward-facing probe).
+
+        Physics is stepped 5 times after applying joint motor commands to allow
+        the robot to converge before the next observation is collected.
+
+        Parameters
+        ----------
+        action : (6,) float32
+            Normalized action vector in [-1, 1]. Elements are:
+            [dx, dy, dz, d_roll, d_pitch, d_yaw].
+
+        Returns
+        -------
+        obs : dict
+            New observation (image, force, pose).
+        reward : float
+            Scalar reward signal from ``_compute_reward()``.
+        terminated : bool
+            True if a safety limit was exceeded or prolonged no-contact.
+        truncated : bool
+            True if the episode horizon was reached.
+        info : dict
+            Diagnostic dict with ``"force"`` (float) and ``"step"`` (int).
+        """
         self.step_counter += 1
         
         # Decode and scale action
@@ -330,6 +490,33 @@ class RoboticUltrasoundGymEnv(gym.Env):
         return obs, reward, terminated, truncated, info
         
     def _compute_reward(self, action):
+        """Compute the scalar reward for the current step.
+
+        The reward has three additive components:
+
+        **Force reward** (``R_f``) — encourages clinically appropriate contact:
+          - F = 0 N : ``−2.0`` (hard penalty, probe lost contact)
+          - 0 < F < 2 N: ``+0.5 × F`` (light contact, partial reward)
+          - 2 ≤ F ≤ 8 N: ``+1.0`` (ideal contact window)
+          - F > 8 N: ``−1.0 × (F − 8)`` (excess force, patient safety)
+
+        **Bone reward** (``R_b``) — encourages scanning over anatomical targets:
+          - If the segmentation slice contains >5 bone pixels: ``+1.5``.
+          - Otherwise: ``0.0``.
+
+        **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
+          - ``−0.1 × ‖action‖²``  (always applied).
+
+        Parameters
+        ----------
+        action : (6,) float32
+            The action taken this step (used for the smoothness penalty).
+
+        Returns
+        -------
+        reward : float
+            Total scalar reward: ``R_f + R_b + R_a``.
+        """
         F = self.current_force
         
         # 1. Force Reward: penalizes air gap (F=0) and high forces, rewards [2N, 8N] contact

@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** 2-channel semantic-guided (CT + Seg -> US) pipeline successfully integrated and verified with new `exp1_2IP` checkpoint. Ready to construct the local **Stage 3 OpenAI Gym Environment wrapper** in PyBullet.
+* **Current Focus:** All stages of the pipeline have been implemented and verified. The 2-channel semantic-guided U-Net architecture is fully integrated, and the Stage 3 OpenAI Gymnasium Environment (`robotic_us_env.py`) has been completed and verified via `test_gym_env.py`. The active focus is now on executing and monitoring the A2C reinforcement learning training (either locally or on Google Colab using `COLAB_INSTRUCTIONS.md`), visualizing the progress via TensorBoard, and verifying the final policy. U-Net model retraining remains delayed until GPU access is available.
 
 ---
 
