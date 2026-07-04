@@ -1,7 +1,8 @@
 # SonoGym Architecture Analysis & Comparison with Our Project
 
-> **Purpose:** Reference document for understanding how SonoGym builds its simulation, what data it uses, and how our project aligns or diverges from their approach.
-> **Last Updated:** 2026-07-04
+> **Purpose:** Reference document for understanding how SonoGym builds its simulation, what data it uses, and how our project aligns or diverges from their approach.  
+> **Last Updated:** 2026-07-04  
+> **Confirmed Paper:** Yunke Ao et al., arXiv:2507.01152, NeurIPS 2025 (D&B Track)
 
 ---
 
@@ -46,7 +47,9 @@ SonoGym's primary anatomical focus is the **lumbar spine** (vertebrae L1–L5) f
 
 ### ⚠️ Critical Finding: SPINE-SPECIFIC, PRIVATE Dataset
 
-SonoGym's pix2pix model is trained on a **proprietary in-house paired CT-to-Ultrasound dataset** collected from **7 ex-vivo lumbar spine specimens**.
+SonoGym's pix2pix model is trained on a **proprietary in-house paired CT-to-Ultrasound dataset** collected from **~7 ex-vivo cadaveric lumbar spine specimens**.
+
+**Important:** This is NOT the UltraBones100k dataset. UltraBones100k (arXiv:2502.03783) is a *companion* publication by the same ETH Zurich / Balgrist group covering lower limbs (tibia, fibula, foot, 14 cadavers, CC BY 4.0 public). The two datasets are separate — SonoGym's pix2pix was trained on the private spine set only.
 
 **Data collection protocol:**
 - Optical tracking markers attached to the sacrum for accurate spatial registration.
@@ -151,10 +154,25 @@ Use `tibia.stl` + `fibula.stl` from UltraBones100k specimen01 (already downloade
 
 ---
 
-## 8. References
+## 8. Our Architectural Advantage Over SonoGym
 
-1. Ao, Y. et al. "SonoGym: High Performance Simulation for Challenging Surgical Tasks with Robotic Ultrasound." NeurIPS 2025 (D&B Track). https://github.com/SonoGym/SonoGym
+Our project provides two key improvements beyond SonoGym's pix2pix:
+
+| Feature | SonoGym | Our Project |
+|---------|---------|-------------|
+| **Model input** | 1-channel CT slice | **2-channel: CT + bone segmentation mask** |
+| **Acoustic shadow** | Approximated from CT HU only | **Exact from bone mask** (crisp shadow boundary) |
+| **Training domain** | Spine only | **Lower limbs** (UltraBones100k — fills SonoGym's gap) |
+| **RL environment** | Isaac Lab (requires NVIDIA GPU) | PyBullet (CPU, accessible to all) |
+
+SonoGym's paper **acknowledges** that extending to lower-limb anatomy requires new paired CT-US training data — specifically citing UltraBones100k as the intended future source. **Our project already uses UltraBones100k**, directly filling this gap that SonoGym identified.
+
+---
+
+## 9. References
+
+1. Ao, Y. et al. "SonoGym: High Performance Simulation for Challenging Surgical Tasks with Robotic Ultrasound." NeurIPS 2025 (D&B Track). **arXiv:2507.01152.** https://github.com/SonoGym/SonoGym
 2. SonoGym HuggingFace: https://huggingface.co/datasets/yunkao/SonoGym_assets_models
 3. Wasserthal, J. et al. "TotalSegmentator: Robust Segmentation of 104 Anatomic Structures in CT Images." Radiology: Artificial Intelligence, 2023. https://github.com/wasserth/TotalSegmentator
-4. UltraBones100k Dataset: https://huggingface.co/datasets/... (ex-vivo lower limb CT-US paired data, public)
+4. UltraBones100k (arXiv:2502.03783): Wu et al., 2025. Ex-vivo lower limb paired CT-US, 14 cadavers, 100k images. CC BY 4.0. https://huggingface.co/datasets/... 
 5. Our project GitHub: https://github.com/Vedansh076/ct-us-robotic-scanning
