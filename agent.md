@@ -29,6 +29,12 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
   1. Boundary-sealing and zero-padding the binary body volume before marching cubes in `generate_patient_meshes.py` to produce mathematically closed, solid manifold torso meshes.
   2. Inverting the triangle winding order (`faces[:, [0, 2, 1]]`) to orient all normals outwards, making the outer skin and flat caps fully opaque and visible.
 
+### Bug 5: Attenuation Unit Mismatch [RESOLVED]
+* **Code Location:** `ModelBasedUSSimulator._compute_attenuation()` inside `live_unet_demo.py`.
+* **Consequence:** The pixel size parameter `e` was passed in meters (`1.5e-4`), but `alpha` was specified in `dB/cm/MHz`. This unit mismatch (meters vs. centimeters) under-calculated the actual physical attenuation by 100×. Additionally, the decay exponent lacked a conversion from Decibels (dB) to Nepers (multiplication by `0.1151`). As a result, the sound wave passed through bone with virtually zero attenuation, making the vertebrae look fully transparent/bright inside and creating zero acoustic shadowing below the bone, rendering the ultrasound identical to the raw CT slice.
+* **Resolution:** Converted `e` to centimeters (`e * 100.0`) and applied the `0.1151` Neper multiplier inside the exponential term. The bone boundary now registers as a highly reflective hyperechoic curve, and the region underneath it is realistically shadowed (attenuation shadow ratio dropped from 0.53 to 0.17).
+
+
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
 * **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
 * **Generative Training:** We will train the model on the **UltraBones100k** dataset (ex-vivo rigid registration) to achieve maximum B-mode realism.
