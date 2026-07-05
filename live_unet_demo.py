@@ -430,8 +430,17 @@ class ModelBasedUSSimulator:
         """
         Depth-dependent attenuation along axis 0 (top = probe).
         atten[i, j] = exp(-sum_{k<=i} alpha[k,j] * e * f)
+
+        Unit Correction:
+        - alpha is in dB/cm/MHz
+        - e is in meters, so we multiply by 100 to convert to cm.
+        - The exponential function np.exp expects Nepers, not dB.
+          1 dB = 0.1151 Nepers, so we multiply by 0.1151.
         """
-        return np.exp(-np.cumsum(alpha, axis=0) * e * f)
+        e_cm = e * 100.0
+        db_to_neper = 0.1151
+        return np.exp(-np.cumsum(alpha, axis=0) * e_cm * f * db_to_neper)
+
 
     @staticmethod
     def _compute_edge_map(label: np.ndarray) -> np.ndarray:
