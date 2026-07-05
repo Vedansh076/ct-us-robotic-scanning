@@ -254,21 +254,29 @@ US_LABEL_FAT        = 3   # Fatty tissue (CT HU < -30)
 US_LABEL_SKIN       = 4   # Skin layer (outermost soft-tissue pixels)
 
 # Per-tissue acoustic parameters:
-#   alpha : ultrasound attenuation coefficient  [dB / cm / MHz]
-#   z     : acoustic impedance                  [MRayl = 10^6 kg/m²/s]
-#   mu0   : speckle mean offset (brightness inside tissue)
-#   mu1   : speckle gate threshold — pixels where N(0,1) > mu1 get zeroed;
-#            lower mu1 = denser speckle (more pixels lit).  Was 0.6 → too sparse.
-#   s0    : speckle standard deviation (texture contrast)
-# Values adapted from SonoGym YAML + standard medical-physics literature.
-# FIX: reduced mu1 for soft tissue from 0.6→0.25 (denser speckle texture)
-#      increased s0 for soft/fat (more visible grain), raised mu0 for bone.
+#   alpha : attenuation coefficient [dB/cm/MHz]  ← must match this unit in _compute_attenuation
+#   z     : acoustic impedance [MRayl]
+#   mu0   : speckle backscatter mean
+#   mu1   : speckle gate (N(0,1) > mu1 → silence; lower = denser fill)
+#   s0    : speckle std (texture contrast)
+#
+# KEY DECISIONS (informed by reference SimUS images):
+#   • Bone alpha=15 (cortical bone ~10-22 dB/cm/MHz at 5 MHz in literature).
+#     This creates deep, clean acoustic shadow below the bone surface.
+#   • Bone mu0=0, s0=0, mu1=1.0  → NO internal bone speckle.
+#     In real spine US, the vertebral body interior is completely dark (shadow).
+#     Only the TOP surface of bone reflects (handled by edge map + R_coeff).
+#   • Soft tissue mu1=0.20 → very dense speckle fill (most pixels lit).
 _US_TISSUE_PARAMS = {
-    US_LABEL_BACKGROUND: dict(alpha=0.00, z=0.000400, mu0=0.00, mu1=1.0,  s0=0.005),
-    US_LABEL_BONE:       dict(alpha=7.00, z=7.800000, mu0=0.70, mu1=0.25, s0=0.35),
-    US_LABEL_SOFT:       dict(alpha=0.54, z=1.630000, mu0=0.22, mu1=0.25, s0=0.18),
-    US_LABEL_FAT:        dict(alpha=0.48, z=1.380000, mu0=0.12, mu1=0.25, s0=0.14),
-    US_LABEL_SKIN:       dict(alpha=0.20, z=1.700000, mu0=0.25, mu1=0.20, s0=0.10),
+    US_LABEL_BACKGROUND: dict(alpha=0.00, z=0.000400, mu0=0.000, mu1=1.00, s0=0.000),
+    US_LABEL_BONE:       dict(alpha=15.0, z=7.800000, mu0=0.000, mu1=1.00, s0=0.000),
+    # mu0 and s0 are calibrated for NORMALIZED PSF_B (unit-sum kernel).
+    # Target: tissue appears at ~30% of display with 50 dB log compression
+    # relative to the bone-surface specular echo (~0.77 at bone boundary).
+    # Formula: B = I0 * atten_tgc * mu0; B/bone = 0.056 → -25 dB → 50% display.
+    US_LABEL_SOFT:       dict(alpha=0.54, z=1.630000, mu0=0.010, mu1=0.20, s0=0.007),
+    US_LABEL_FAT:        dict(alpha=0.48, z=1.380000, mu0=0.006, mu1=0.25, s0=0.005),
+    US_LABEL_SKIN:       dict(alpha=0.20, z=1.700000, mu0=0.014, mu1=0.18, s0=0.009),
 }
 
 
@@ -320,91 +328,90 @@ def make_label_map(ct_slice: np.ndarray, seg_slice: np.ndarray) -> np.ndarray:
 
 class ModelBasedUSSimulator:
     """
-    Physics/convolution-based ultrasound image synthesizer.
+    Physics/convolution-based B-mode ultrasound synthesizer.
 
-    Mimics SonoGym's ``USSimulatorConv``.  Does NOT require a trained neural
-    network – it synthesizes B-mode images directly from a tissue label map.
+    Produces images that match real spine ultrasound appearance:
+      - Bright hyperechoic line at the TOP SURFACE of cortical bone
+      - Complete acoustic shadow below and inside bone
+      - Dense granular speckle in soft tissue above bone
+      - Log-compressed dynamic range (matches clinical scanner display)
 
-    Algorithm (matches SonoGym paper §3.1, with CT-gradient refinement from
-    the paper's ``if_ct=True`` path):
-      1. Build per-pixel acoustic parameter maps (α, Z, speckle μ₀, μ₁, σ₀)
-         from tissue labels.
-      2. Compute depth-dependent attenuation: atten = exp(-cumsum(α) · e · f)
-      3. Compute tissue-boundary edge map  AND  supplement with CT-gradient
-         edges to capture intra-tissue interfaces not visible in label map.
-      4. Reflection (specular echo):
-           E = I₀ · atten · ((Z₁−Z₂)/(Z₁+Z₂))² · cos θ
-           E = PSF_E ⊛ E  (lateral blurring)
-      5. Backscatter speckle:
-           S = Gaussian noise modulated by tissue (μ₀, μ₁, σ₀)
-           B = I₀ · atten · (PSF_B ⊛ S)
-      6. Final image: US = ratio·E + B + TGC noise
-      7. Gamma compress + normalise to [0, 1].
-
-    Quality fixes applied vs. first version:
-      - PSF widened  (sx_E 0.6→1.5, sy_E 2→4)  → proper streak appearance
-      - element_size reduced (5e-4→1.5e-4 m)  → less depth blackout
-      - TGC_beta raised (0.01→0.05)  → uniform brightness across depth
-      - mu1 lowered for all tissues (0.6→0.25)  → denser speckle texture
-      - CT-gradient edge supplementation  → sub-label-resolution interfaces
-      - Gamma compression (γ=0.6) before output  → mid-tone lift like TGC
+    Algorithm:
+      1. Per-pixel tissue param maps (alpha, Z, speckle mu/sigma)
+      2. True Beer-Lambert attenuation: atten = exp(-cumsum(alpha)*e_cm*f*0.1151)
+      3. Arriving signal at each interface: atten_arriving = shift(atten, 1 row up)
+      4. TGC gain (post-detection scanner gain): tgc = clip(exp(beta*depth), 1, max)
+      5. Edge map (label boundaries + CT-gradient supplementation)
+      6. Specular reflection: E = I0 * atten_arriving * R_coeff * edge * |cosθ|
+      7. Backscatter speckle: B = I0 * atten_tgc * PSF_B ⊛ (tissue noise)
+      8. Instrument noise suppressed in shadow: noise * atten
+      9. Log compression: US_dB = 20*log10(US/max); clip to [-DR, 0] dB
     """
 
     def __init__(
         self,
-        frequency:    float = 5.0,    # MHz
-        I0:           float = 1.5,    # initial acoustic energy  (was 1.0)
-        element_size: float = 1.5e-4, # pixel pitch [m] — 0.15mm reduces depth blackout
-        sx_E:         float = 1.5,    # PSF_E lateral sigma [pixels]  (was 0.6)
-        sy_E:         float = 4.0,    # PSF_E axial sigma [pixels]    (was 2.0)
-        sx_B:         float = 2.0,    # PSF_B lateral sigma [pixels]  (was 1.0)
-        sy_B:         float = 2.0,    # PSF_B axial sigma [pixels]    (was 1.0)
-        kernel_size:  tuple = (11, 11),  # larger kernel → full PSF extent (was 7×7)
-        E_S_ratio:    float = 1.2,    # reflection-to-speckle weighting  (was 0.8)
-        TGC_beta:     float = 0.05,   # time-gain compensation  (was 0.01 → too weak)
-        noise_I:      float = 0.03,   # noise intensity scale
-        noise_mu0:    float = 0.01,
-        noise_mu1:    float = 0.4,
-        noise_s0:     float = 0.03,
-        noise_f:      float = 1.0,
-        ct_edge_weight: float = 0.5,  # weight of CT-gradient edges (0 = label-only)
-        ct_edge_thresh: float = 0.15, # relative gradient threshold for CT edges
-        gamma:        float = 0.6,    # output gamma compression  (< 1 lifts mid-tones)
-        tissue_params: dict | None = None,
-        rng_seed: int | None = None,
+        frequency:      float = 5.0,    # MHz
+        I0:             float = 1.8,    # initial pulse energy
+        element_size:   float = 1.5e-4, # pixel pitch [m]
+        sx_E:           float = 1.5,    # PSF_E lateral sigma [px]
+        sy_E:           float = 4.0,    # PSF_E axial sigma [px] (elongated axially)
+        sx_B:           float = 2.0,    # PSF_B lateral sigma [px]
+        sy_B:           float = 2.0,    # PSF_B axial sigma [px]
+        kernel_size:    tuple = (11, 11),
+        E_S_ratio:      float = 1.5,    # specular-to-speckle weight (bone line dominates)
+        TGC_beta:       float = 0.08,   # TGC slope [Nepers/cm/MHz equivalent]
+        tgc_gain_max:   float = 4.0,    # maximum TGC gain (caps amplification at depth)
+        noise_I:        float = 0.006,  # instrument noise scale (very low to keep shadow dark)
+        noise_mu0:      float = 0.005,
+        noise_mu1:      float = 0.3,
+        noise_s0:       float = 0.01,
+        ct_edge_weight: float = 0.4,    # CT-gradient edge blend weight
+        ct_edge_thresh: float = 0.12,   # relative gradient threshold
+        dynamic_range:  float = 50.0,   # log-compression dynamic range [dB]
+        tissue_params:  dict | None = None,
+        rng_seed:       int | None = None,
     ):
-        self.f      = frequency
-        self.I0     = I0
-        self.e      = element_size
-        self.beta   = TGC_beta
-        self.E_S_ratio = E_S_ratio
-        self.n_I    = noise_I
-        self.n_mu0  = noise_mu0
-        self.n_mu1  = noise_mu1
-        self.n_s0   = noise_s0
-        self.n_f    = noise_f
+        self.f             = frequency
+        self.I0            = I0
+        self.e             = element_size
+        self.beta          = TGC_beta
+        self.tgc_gain_max  = tgc_gain_max
+        self.E_S_ratio     = E_S_ratio
+        self.n_I           = noise_I
+        self.n_mu0         = noise_mu0
+        self.n_mu1         = noise_mu1
+        self.n_s0          = noise_s0
         self.ct_edge_weight = ct_edge_weight
         self.ct_edge_thresh = ct_edge_thresh
-        self.gamma  = gamma
+        self.dynamic_range  = dynamic_range
 
         self.tissue_params = tissue_params if tissue_params else _US_TISSUE_PARAMS
         self.rng = np.random.default_rng(rng_seed)
 
-        # Build 2-D PSF kernels (Gaussian in lateral × axial)
+        # PSF kernels
         self.PSF_E = self._make_psf(sx_E, sy_E, kernel_size)
         self.PSF_B = self._make_psf(sx_B, sy_B, kernel_size)
 
     # ── helper ────────────────────────────────────────────────────────────────
     @staticmethod
     def _make_psf(sx: float, sy: float, ksize: tuple) -> np.ndarray:
-        """Build a separable 2-D Gaussian PSF kernel (not normalised)."""
+        """
+        Build a separable 2-D Gaussian PSF kernel normalised to unit sum.
+        Normalisation is critical: an un-normalised kernel amplifies uniform
+        tissue regions by its total sum (~25-30 for a 11×11 Gaussian), which
+        would make soft-tissue speckle much brighter than the bone surface echo.
+        With unit-sum normalisation, convolution is amplitude-preserving for
+        uniform regions, so tissue and bone echo amplitudes are directly
+        comparable and can be calibrated via tissue_params.
+        """
         kh, kw = ksize
         cx, cy = (kw - 1) / 2.0, (kh - 1) / 2.0
         xs = np.arange(kw, dtype=np.float32) - cx
         ys = np.arange(kh, dtype=np.float32) - cy
         gx = np.exp(-0.5 * xs**2 / sx**2)
         gy = np.exp(-0.5 * ys**2 / sy**2)
-        return np.outer(gy, gx).astype(np.float32)   # (kh, kw)
+        kernel = np.outer(gy, gx).astype(np.float32)
+        return kernel / kernel.sum()   # unit-sum normalisation
 
     def _assign_param_maps(
         self, label: np.ndarray
@@ -504,105 +511,129 @@ class ModelBasedUSSimulator:
         if_noise: bool = True,
     ) -> np.ndarray:
         """
-        Synthesise a B-mode ultrasound image from an integer label map,
-        optionally supplemented by CT-gradient edges for intra-tissue detail.
+        Synthesise a B-mode ultrasound image from a tissue label map,
+        using the corrected physics pipeline.
+
+        Physics corrections applied:
+          - Bone alpha=15 (realistic cortical attenuation) → deep clean shadow
+          - Bone has zero speckle → interior is dark, only surface reflects
+          - atten_arriving (signal BEFORE interface) used for reflection term
+          - TGC applied as POST-detection multiplicative gain, not alpha reduction
+          - Instrument noise suppressed by atten → shadow stays dark
+          - Log compression (50 dB DR) → high-contrast bone vs dark shadow
+          - Percentile normalization → hot pixels don't compress the rest dark
 
         Parameters
         ----------
-        label     : (H, W) uint8 integer tissue labels (see US_LABEL_* constants)
-        ct_slice  : (H, W) float32 raw HU values; if provided, CT-gradient
-                    edges are blended into the reflection term to capture
-                    sub-label-resolution interfaces (fascia, vessels, etc.).
-        if_noise  : whether to add TGC instrument noise
+        label     : (H, W) uint8 tissue labels (see US_LABEL_* constants)
+        ct_slice  : (H, W) float32 HU values; if given, CT-gradient edges
+                    supplement the label edge map for sub-label interfaces.
+        if_noise  : whether to add instrument noise (suppressed in shadow)
 
         Returns
         -------
-        us_image  : (H, W) float32 in [0, 1]
+        us_image  : (H, W) float32 in [0, 1], log-compressed B-mode appearance
         """
         alpha, Z, mu0, mu1, s0 = self._assign_param_maps(label)
+        H, W = label.shape
+        e_cm = self.e * 100.0
+        db_to_neper = 0.1151
 
-        # 1. Attenuation (TGC beta already subtracted from alpha)
-        atten = self._compute_attenuation(alpha - self.beta, self.e, self.f)
-        # Clamp to avoid negative exponents going above 1
+        # 1. TRUE acoustic attenuation (Beer-Lambert, correct units)
+        #    atten[i,j] = fraction of original pulse reaching depth i from top
+        atten = np.exp(-np.cumsum(alpha, axis=0) * e_cm * self.f * db_to_neper)
         atten = np.clip(atten, 0.0, 1.0)
 
-        # 2. Label edge map & cosine map
+        # 2. ARRIVING signal: the pulse energy just BEFORE reaching row i
+        #    = atten of row (i-1). This is what creates the surface echo.
+        atten_arriving = np.vstack([
+            np.ones((1, W), dtype=np.float32),
+            atten[:-1, :],
+        ])
+
+        # 3. TGC GAIN: scanner applies depth-dependent amplification AFTER
+        #    detection to partially compensate for attenuation.
+        #    tgc_gain = exp(beta * depth * e_cm * f * db_to_neper)
+        depth_idx = np.arange(H, dtype=np.float32)[:, None]
+        tgc_gain = np.exp(depth_idx * self.beta * e_cm * self.f * db_to_neper)
+        tgc_gain = np.clip(tgc_gain, 1.0, self.tgc_gain_max)
+        # TGC-corrected speckle amplitude (what the scanner displays for soft tissue)
+        atten_tgc = np.clip(atten * tgc_gain, 0.0, 1.0)
+
+        # 4. Label edge map & cosine map
         label_edge = self._compute_edge_map(label)
         cos_m      = self._compute_cos_map(label_edge)
 
-        # 3. CT-gradient edge supplementation  ← KEY FIX for image quality
-        #    Adds fine-grained intra-tissue interfaces not visible in label map.
-        #    Mirrors SonoGym's compute_ct_edge_map / if_ct=True path.
+        # 5. CT-gradient edge supplementation (sub-label intra-tissue interfaces)
         if ct_slice is not None and self.ct_edge_weight > 0.0:
             ct_edge = self._compute_ct_edge_map(ct_slice, thresh=self.ct_edge_thresh)
-            # Use CT edge for the reflection term but label edge for cosine
             combined_edge = np.clip(
                 label_edge + self.ct_edge_weight * ct_edge, 0.0, 1.0
             )
-            # Use CT-based impedance proxy for the reflection coefficient where
-            # no label boundary exists (raw HU scaled → approximate Z)
-            ct_norm = np.clip(
-                (ct_slice.astype(np.float32) + 1000.0) / 2000.0, 0.0, 1.0
-            )
-            Z_ct = ct_norm * 3.5 + 0.5   # rough HU → Z scaling [0.5, 4.0] MRayl
-            Z_up_ct  = np.roll(Z_ct, 1, axis=0); Z_up_ct[0, :] = Z_ct[0, :]
-            R_ct = (Z_up_ct - Z_ct)**2 / (Z_up_ct + Z_ct + 1e-5)**2
-            # Blend: label interfaces use label-Z, CT interfaces use CT-Z
-            Z_up = np.roll(Z, 1, axis=0); Z_up[0, :] = Z[0, :]
+            # CT-based impedance proxy (HU → Z)
+            ct_norm = np.clip((ct_slice.astype(np.float32) + 1000.0) / 2000.0, 0.0, 1.0)
+            Z_ct   = ct_norm * 3.5 + 0.5
+            Z_up_ct = np.vstack([Z_ct[:1, :], Z_ct[:-1, :]])
+            R_ct   = (Z_up_ct - Z_ct)**2 / (Z_up_ct + Z_ct + 1e-5)**2
+            Z_up   = np.vstack([Z[:1, :], Z[:-1, :]])
             R_label = (Z_up - Z)**2 / (Z_up + Z + 1e-5)**2
             R_coeff = R_label + self.ct_edge_weight * R_ct
-            edge = combined_edge
+            edge    = combined_edge
         else:
-            Z_up    = np.roll(Z, 1, axis=0); Z_up[0, :] = Z[0, :]
+            Z_up    = np.vstack([Z[:1, :], Z[:-1, :]])
             R_coeff = (Z_up - Z)**2 / (Z_up + Z + 1e-5)**2
             edge    = label_edge
 
-        # 4. Reflection (specular echo) map — clamp outliers before PSF
-        I0_map = np.ones_like(alpha) * self.I0
-        E_map  = I0_map * atten * R_coeff * edge * np.abs(cos_m)
-        E_map  = np.clip(E_map, 0.0, 0.15)
-        # Convolve with PSF_E to model lateral resolution blurring
+        # 6. SPECULAR REFLECTION MAP
+        #    Uses atten_arriving (pulse must travel TO the interface to reflect).
+        #    Bone-tissue boundary: Z_bone=7.8 vs Z_soft=1.63
+        #      R = ((7.8-1.63)/(7.8+1.63))^2 ≈ 0.43 (43% energy reflected)
+        #    This creates the dominant bright line at the bone surface.
+        #    NOTE: no hard clip here — strong bone echoes should dominate.
+        E_map = self.I0 * atten_arriving * R_coeff * edge * np.abs(cos_m)
+        E_map = np.clip(E_map, 0.0, 1.5)   # soft ceiling only (avoid inf)
         E_map = cv2.filter2D(E_map, -1, self.PSF_E, borderType=cv2.BORDER_REFLECT)
 
-        # 5. Backscatter speckle map
+        # 7. BACKSCATTER SPECKLE
+        #    Amplitude driven by TGC-corrected signal (atten_tgc).
+        #    Bone tissue has mu0=0, s0=0 → zero speckle inside bone (shadow region).
         rng = self.rng
-        T0 = rng.standard_normal(label.shape).astype(np.float32)
-        T1 = rng.standard_normal(label.shape).astype(np.float32)
+        T0  = rng.standard_normal(label.shape).astype(np.float32)
+        T1  = rng.standard_normal(label.shape).astype(np.float32)
         S_map = T0 * s0 + mu0
-        S_map[T1 > mu1] = 0.0   # gate: pixels where N(0,1) > mu1 → silent
-        S_map = np.clip(S_map, 0.0, None)  # speckle amplitude is non-negative
-        B_map = I0_map * atten * cv2.filter2D(
+        S_map[T1 > mu1] = 0.0          # gate: N(0,1) > mu1 → silent pixel
+        S_map = np.clip(S_map, 0.0, None)
+        B_map = self.I0 * atten_tgc * cv2.filter2D(
             S_map, -1, self.PSF_B, borderType=cv2.BORDER_REFLECT)
 
-        # 6. Combine reflection + backscatter
+        # 8. COMBINE
         US = self.E_S_ratio * E_map + B_map
 
-        # 7. TGC noise
+        # 9. INSTRUMENT NOISE  — suppressed in shadow by multiplying with atten
+        #    (no noise below bone; real scanners show clean dark shadow)
         if if_noise:
             n_T0 = rng.standard_normal(label.shape).astype(np.float32)
-            n_T1 = rng.standard_normal(label.shape).astype(np.float32)
-            n_map = n_T0 * self.n_s0 + self.n_mu0
-            n_map[n_T1 > self.n_mu1] = 0.0
-            depth_idx = np.arange(label.shape[0], dtype=np.float32)[:, None]
-            TGC = np.exp(depth_idx * self.e * self.beta * self.n_f)
-            US = US + n_map * TGC * self.n_I
+            n_map = np.clip(n_T0 * self.n_s0 + self.n_mu0, 0.0, None)
+            US = US + n_map * atten * self.n_I
 
         US = np.clip(US, 0.0, None)
 
-        # 8. Gamma compression — lifts mid-tones (mimics scanner log-compression)
-        #    γ < 1 brightens the image non-linearly while preserving bright peaks.
-        if self.gamma != 1.0:
-            US_max = US.max()
-            if US_max > 1e-8:
-                US = (US / US_max) ** self.gamma * US_max
+        # 10. LOG COMPRESSION (mimics clinical scanner display)
+        #     Real US scanners display in dB scale: bright = highly reflective,
+        #     dark = attenuated shadow.  DR=50 dB → signals 178× weaker than max
+        #     are black (realistic for bone acoustic shadow).
+        DR  = self.dynamic_range
+        eps = 10.0 ** (-DR / 20.0)   # minimum visible signal fraction
+        # Robust max: use 99.5th percentile to prevent a single hot pixel
+        # from compressing everything else to darkness.
+        US_max = float(np.percentile(US, 99.5))
+        if US_max < 1e-8:
+            US_max = 1e-8
+        US_norm  = US / US_max
+        US_log   = 20.0 * np.log10(US_norm + eps)   # range: [-DR, ~0] dB
+        US_final = np.clip(US_log + DR, 0.0, DR) / DR  # scale to [0, 1]
 
-        # 9. Normalise to [0, 1]
-        mn, mx = US.min(), US.max()
-        if mx > mn + 1e-8:
-            US = (US - mn) / (mx - mn)
-        else:
-            US = np.zeros_like(US)
-        return US.astype(np.float32)
+        return US_final.astype(np.float32)
 
 
 
@@ -1653,28 +1684,29 @@ def main() -> None:
         # ── Model-based (physics) simulation – no neural network loaded ────────
         model = None
         # Model-based (physics) simulation — no neural network loaded
-        # Tuned parameters fix the 5 low-quality causes identified:
-        #   element_size: 1.5e-4 m (was 5e-4) → reduces depth blackout 3×
-        #   TGC_beta: 0.05 (was 0.01) → proper depth compensation
-        #   PSF widened: sx_E=1.5, sy_E=4 → correct streak appearance
-        #   E_S_ratio: 1.2 (was 0.8) → stronger bone echoes
-        #   ct_edge_weight: 0.5 → supplements label edges with CT gradients
+        # All parameters tuned to match reference spine SimUS images:
+        #   Bone alpha=15 (cortical bone ~15 dB/cm/MHz at 5 MHz)
+        #   Bone zero speckle: only surface line visible, interior shadowed
+        #   TGC as post-detection gain (not alpha reduction)
+        #   Log compression 50 dB dynamic range (clinical display standard)
+        #   Noise suppressed in shadow (atten-weighted)
         conv_sim = ModelBasedUSSimulator(
-            I0           = 1.5,
-            element_size = 1.5e-4,
-            sx_E         = 1.5,
-            sy_E         = 4.0,
-            sx_B         = 2.0,
-            sy_B         = 2.0,
-            kernel_size  = (11, 11),
-            E_S_ratio    = 1.2,
-            TGC_beta     = 0.05,
-            noise_I      = 0.03,
-            noise_mu0    = 0.01,
-            noise_s0     = 0.03,
-            ct_edge_weight = 0.5,
+            I0             = 1.8,
+            element_size   = 1.5e-4,
+            sx_E           = 1.5,
+            sy_E           = 4.0,
+            sx_B           = 2.0,
+            sy_B           = 2.0,
+            kernel_size    = (11, 11),
+            E_S_ratio      = 1.5,
+            TGC_beta       = 0.08,
+            tgc_gain_max   = 4.0,
+            noise_I        = 0.006,
+            noise_mu0      = 0.005,
+            noise_s0       = 0.01,
+            ct_edge_weight = 0.4,
             ct_edge_thresh = 0.12,
-            gamma        = 0.6,
+            dynamic_range  = 50.0,
         )
 
         print("Simulation mode: Model-Based Convolution (no neural network)")
