@@ -56,6 +56,16 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Expose `--match-histogram` command-line argument in `live_unet_demo.py`
   - [x] Integrate `skimage.exposure.match_histograms` in the inference path to align incoming CT slices with the training distribution
 
+## Stage 4: Model-Based (Physics/Convolution) Ultrasound Simulation
+
+- [/] **1. Implement Model-Based US Simulator**
+  - [ ] Add `ModelBasedUSSimulator` class to `live_unet_demo.py` (NumPy physics-based, no neural network)
+  - [ ] Add `--sim-mode {unet,pix2pix,conv}` CLI argument
+  - [ ] Update `main()` to skip model loading when `--sim-mode conv`
+  - [ ] Dispatch inference to `ModelBasedUSSimulator.simulate()` in the sim loop
+  - [ ] Add `make_label_map(ct_slice, seg_slice)` helper for 3-class label map
+  - [ ] Verify bone hyperechoic reflectors + acoustic shadowing appear correctly
+
 ## Stage 3: OpenAI Gymnasium Environment Wrapper
 
 - [x] **1. Create Gymnasium Environment Wrapper**

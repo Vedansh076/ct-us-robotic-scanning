@@ -241,6 +241,271 @@ def enhance_us_output(pred: np.ndarray) -> np.ndarray:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# MODEL-BASED (CONVOLUTION-BASED) ULTRASOUND SIMULATOR
+# Replicates SonoGym's USSimulatorConv using NumPy (CPU).
+# Reference: SonoGym paper §3.1 and [41] (convolution-based US simulation).
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Tissue label integer codes used by make_label_map()
+US_LABEL_BACKGROUND = 0   # Air / outside body
+US_LABEL_BONE       = 1   # Cortical bone (from bone_label.nii.gz > 0.5)
+US_LABEL_SOFT       = 2   # General soft tissue / muscle
+US_LABEL_FAT        = 3   # Fatty tissue (CT HU < -30)
+US_LABEL_SKIN       = 4   # Skin layer (outermost soft-tissue pixels)
+
+# Per-tissue acoustic parameters:
+#   alpha : ultrasound attenuation coefficient  [dB / cm / MHz]
+#   z     : acoustic impedance                  [MRayl = 10^6 kg/m²/s]
+#   mu0   : speckle mean offset
+#   mu1   : speckle gate (fraction of pixels that get non-zero speckle)
+#   s0    : speckle standard deviation
+# Values adapted from SonoGym YAML + standard medical-physics literature.
+_US_TISSUE_PARAMS = {
+    US_LABEL_BACKGROUND: dict(alpha=0.00, z=0.000400, mu0=0.00, mu1=0.0, s0=0.01),
+    US_LABEL_BONE:       dict(alpha=7.00, z=7.800000, mu0=0.60, mu1=0.4, s0=0.30),
+    US_LABEL_SOFT:       dict(alpha=0.54, z=1.630000, mu0=0.15, mu1=0.6, s0=0.12),
+    US_LABEL_FAT:        dict(alpha=0.60, z=1.380000, mu0=0.10, mu1=0.5, s0=0.10),
+    US_LABEL_SKIN:       dict(alpha=0.20, z=1.700000, mu0=0.20, mu1=0.7, s0=0.08),
+}
+
+
+def make_label_map(ct_slice: np.ndarray, seg_slice: np.ndarray) -> np.ndarray:
+    """
+    Convert floating-point CT + binary bone segmentation into an integer tissue
+    label map for the model-based US simulator.
+
+    Label assignment (priority order, highest first):
+      1. Bone  (wherever bone_label.nii.gz mask > 0.5)
+      2. Fat   (wherever CT HU < -30 and NOT bone)
+      3. Background (wherever CT HU < -500 = air)
+      4. Skin  (1-pixel ring around the body boundary in the label map)
+      5. Soft tissue (everything else)
+
+    Parameters
+    ----------
+    ct_slice  : (H, W) float32 HU values
+    seg_slice : (H, W) float32 binary bone mask (0 or 1)
+
+    Returns
+    -------
+    label : (H, W) uint8 integer label map
+    """
+    H, W = ct_slice.shape
+    label = np.full((H, W), US_LABEL_SOFT, dtype=np.uint8)
+
+    # Air / outside body
+    label[ct_slice < -500.0] = US_LABEL_BACKGROUND
+
+    # Fat tissue
+    fat_mask = (ct_slice >= -200.0) & (ct_slice < -30.0)
+    label[fat_mask] = US_LABEL_FAT
+
+    # Bone – highest priority; overrides fat
+    label[seg_slice > 0.5] = US_LABEL_BONE
+
+    # Skin: erode the non-background region by 1px and mark the border
+    body_mask = (label != US_LABEL_BACKGROUND).astype(np.uint8)
+    kernel = np.ones((3, 3), dtype=np.uint8)
+    eroded = cv2.erode(body_mask, kernel, iterations=1)
+    border = (body_mask - eroded).astype(bool)
+    # Only mark as skin where the existing label is soft tissue or fat (not bone)
+    skin_eligible = border & (label != US_LABEL_BONE)
+    label[skin_eligible] = US_LABEL_SKIN
+
+    return label
+
+
+class ModelBasedUSSimulator:
+    """
+    Physics/convolution-based ultrasound image synthesizer.
+
+    Mimics SonoGym's ``USSimulatorConv``.  Does NOT require a trained neural
+    network – it synthesizes B-mode images directly from a tissue label map.
+
+    Algorithm (matches SonoGym paper §3.1):
+      1. Build per-pixel acoustic parameter maps (α, Z, speckle μ₀, μ₁, σ₀)
+         from tissue labels.
+      2. Compute depth-dependent attenuation: atten = exp(-cumsum(α) · e · f)
+      3. Compute tissue-boundary edge map and surface-normal cosine map.
+      4. Reflection (specular echo):
+           E = I₀ · atten · ((Z₁−Z₂)/(Z₁+Z₂))² · cos θ
+           E = PSF_E ⊛ E  (lateral blurring)
+      5. Backscatter speckle:
+           S = Gaussian noise modulated by tissue (μ₀, μ₁, σ₀)
+           B = I₀ · atten · (PSF_B ⊛ S)
+      6. Final image: US = ratio·E + B  + TGC noise
+      7. Normalise to [0, 1].
+    """
+
+    def __init__(
+        self,
+        frequency:    float = 5.0,   # MHz
+        I0:           float = 1.0,   # initial acoustic energy
+        element_size: float = 5e-4,  # pixel pitch [m] ≈ 0.5 mm
+        sx_E:         float = 0.6,   # PSF_E lateral sigma [pixels]
+        sy_E:         float = 2.0,   # PSF_E axial sigma [pixels]
+        sx_B:         float = 1.0,   # PSF_B lateral sigma [pixels]
+        sy_B:         float = 1.0,   # PSF_B axial sigma [pixels]
+        kernel_size:  tuple = (7, 7),
+        E_S_ratio:    float = 0.8,   # reflection-to-speckle weighting
+        TGC_beta:     float = 0.01,  # time-gain compensation coefficient
+        noise_I:      float = 0.04,  # noise intensity scale
+        noise_mu0:    float = 0.02,
+        noise_mu1:    float = 0.5,
+        noise_s0:     float = 0.05,
+        noise_f:      float = 1.0,
+        tissue_params: dict | None = None,
+        rng_seed: int | None = None,
+    ):
+        self.f      = frequency
+        self.I0     = I0
+        self.e      = element_size
+        self.beta   = TGC_beta
+        self.E_S_ratio = E_S_ratio
+        self.n_I    = noise_I
+        self.n_mu0  = noise_mu0
+        self.n_mu1  = noise_mu1
+        self.n_s0   = noise_s0
+        self.n_f    = noise_f
+
+        self.tissue_params = tissue_params if tissue_params else _US_TISSUE_PARAMS
+        self.rng = np.random.default_rng(rng_seed)
+
+        # Build 2-D PSF kernels (Gaussian in lateral × axial)
+        self.PSF_E = self._make_psf(sx_E, sy_E, kernel_size)
+        self.PSF_B = self._make_psf(sx_B, sy_B, kernel_size)
+
+    # ── helper ────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _make_psf(sx: float, sy: float, ksize: tuple) -> np.ndarray:
+        """Build a separable 2-D Gaussian PSF kernel (not normalised)."""
+        kh, kw = ksize
+        cx, cy = (kw - 1) / 2.0, (kh - 1) / 2.0
+        xs = np.arange(kw, dtype=np.float32) - cx
+        ys = np.arange(kh, dtype=np.float32) - cy
+        gx = np.exp(-0.5 * xs**2 / sx**2)
+        gy = np.exp(-0.5 * ys**2 / sy**2)
+        return np.outer(gy, gx).astype(np.float32)   # (kh, kw)
+
+    def _assign_param_maps(
+        self, label: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Return per-pixel maps for alpha, Z, mu0, mu1, s0."""
+        H, W = label.shape
+        alpha = np.zeros((H, W), dtype=np.float32)
+        Z     = np.zeros((H, W), dtype=np.float32)
+        mu0   = np.zeros((H, W), dtype=np.float32)
+        mu1   = np.zeros((H, W), dtype=np.float32)
+        s0    = np.zeros((H, W), dtype=np.float32)
+        for lbl, params in self.tissue_params.items():
+            mask = label == lbl
+            alpha[mask] = params['alpha']
+            Z[mask]     = params['z']
+            mu0[mask]   = params['mu0']
+            mu1[mask]   = params['mu1']
+            s0[mask]    = params['s0']
+        return alpha, Z, mu0, mu1, s0
+
+    @staticmethod
+    def _compute_attenuation(alpha: np.ndarray, e: float, f: float) -> np.ndarray:
+        """
+        Depth-dependent attenuation along axis 0 (top = probe).
+        atten[i, j] = exp(-sum_{k<=i} alpha[k,j] * e * f)
+        """
+        return np.exp(-np.cumsum(alpha, axis=0) * e * f)
+
+    @staticmethod
+    def _compute_edge_map(label: np.ndarray) -> np.ndarray:
+        """
+        Binary edge map: 1 wherever label changes between successive rows.
+        Only axial (depth-direction) edges are used because US predominantly
+        responds to interfaces perpendicular to the beam.
+        """
+        edge = np.zeros(label.shape, dtype=np.float32)
+        edge[1:, :] = (label[1:, :] != label[:-1, :]).astype(np.float32)
+        return edge
+
+    @staticmethod
+    def _compute_cos_map(edge: np.ndarray) -> np.ndarray:
+        """
+        Approximate cosine of the angle between the beam direction (axial)
+        and the surface normal, derived from the gradient of the edge map.
+        """
+        pad = np.pad(edge, ((1, 1), (1, 1)), mode='reflect')
+        grad_x = edge - pad[1:-1, :-2]   # horizontal gradient
+        grad_y = edge - pad[:-2, 1:-1]   # vertical (axial) gradient
+        norm = np.sqrt(grad_x**2 + grad_y**2) + 1e-5
+        # cos(theta) = axial-gradient / magnitude (beam is along axial axis)
+        cos_map = grad_y / norm
+        return cos_map.astype(np.float32)
+
+    def simulate(self, label: np.ndarray, if_noise: bool = True) -> np.ndarray:
+        """
+        Synthesise a B-mode ultrasound image from an integer label map.
+
+        Parameters
+        ----------
+        label     : (H, W) uint8 integer tissue labels  (see US_LABEL_* constants)
+        if_noise  : whether to add TGC instrument noise
+
+        Returns
+        -------
+        us_image  : (H, W) float32 in [0, 1]
+        """
+        alpha, Z, mu0, mu1, s0 = self._assign_param_maps(label)
+
+        # 1. Attenuation
+        atten = self._compute_attenuation(alpha - self.beta, self.e, self.f)
+
+        # 2. Edge map & cosine map
+        edge   = self._compute_edge_map(label)
+        cos_m  = self._compute_cos_map(edge)
+
+        # 3. Acoustic impedance difference (reflection coefficient)
+        Z_up    = np.roll(Z, 1, axis=0);  Z_up[0, :] = Z[0, :]
+        R_coeff = (Z_up - Z)**2 / (Z_up + Z + 1e-5)**2
+
+        # 4. Reflection (specular echo) map — clamp outliers before PSF
+        I0_map = np.ones_like(alpha) * self.I0
+        E_map  = I0_map * atten * R_coeff * edge * np.abs(cos_m)
+        E_map  = np.clip(E_map, 0.0, 0.12)
+        # Convolve with PSF_E to model lateral resolution blurring
+        E_map = cv2.filter2D(E_map, -1, self.PSF_E, borderType=cv2.BORDER_REFLECT)
+
+        # 5. Backscatter speckle map
+        rng = self.rng
+        T0 = rng.standard_normal(label.shape).astype(np.float32)
+        T1 = rng.standard_normal(label.shape).astype(np.float32)
+        S_map = T0 * s0 + mu0
+        S_map[T1 > mu1] = 0.0   # gate: fraction mu1 of pixels get non-zero speckle
+        S_map = np.clip(S_map, 0.0, None)  # speckle is positive amplitude
+        B_map = I0_map * atten * cv2.filter2D(
+            S_map, -1, self.PSF_B, borderType=cv2.BORDER_REFLECT)
+
+        # 6. Combine
+        US = self.E_S_ratio * E_map + B_map
+
+        # 7. TGC noise
+        if if_noise:
+            n_T0 = rng.standard_normal(label.shape).astype(np.float32)
+            n_T1 = rng.standard_normal(label.shape).astype(np.float32)
+            n_map = n_T0 * self.n_s0 + self.n_mu0
+            n_map[n_T1 > self.n_mu1] = 0.0
+            depth_idx = np.arange(label.shape[0], dtype=np.float32)[:, None]
+            TGC = np.exp(depth_idx * self.e * self.beta * self.n_f)
+            US = US + n_map * TGC * self.n_I
+
+        # 8. Normalise to [0, 1]
+        mn, mx = US.min(), US.max()
+        if mx > mn + 1e-8:
+            US = (US - mn) / (mx - mn)
+        else:
+            US = np.zeros_like(US)
+        return US.astype(np.float32)
+
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # ARGUMENT PARSING
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -308,7 +573,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Hide the robot arm and display only the ultrasound probe.",
     )
+    parser.add_argument(
+        "--sim-mode",
+        choices=("unet", "pix2pix", "conv"),
+        default="unet",
+        help="Ultrasound simulation mode: 'unet' (default) uses the trained U-Net, "
+             "'pix2pix' uses the Pix2Pix generator, 'conv' uses the physics-based "
+             "convolution simulator (no neural network required).",
+    )
     return parser.parse_args()
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1271,13 +1545,23 @@ def main() -> None:
     ct_volume, label_volume, spacing, volume_center = load_ct_subject(subject_dir)
 
     device     = select_device(args.device)
-    is_pix2pix = (args.model == "pix2pix")
-    if is_pix2pix:
+    is_pix2pix = (args.model == "pix2pix") or (args.sim_mode == "pix2pix")
+    use_conv_sim = (args.sim_mode == "conv")
+
+    if use_conv_sim:
+        # ── Model-based (physics) simulation – no neural network loaded ────────
+        model = None
+        conv_sim = ModelBasedUSSimulator()
+        print("Simulation mode: Model-Based Convolution (no neural network)")
+    elif is_pix2pix:
         model = load_pix2pix(args.checkpoint, device, args.base_features, args.dropout)
+        conv_sim = None
         print("Model: Pix2Pix U-Net (tanh output)")
     else:
         model = load_unet(args.checkpoint, device, args.base_features, args.dropout)
+        conv_sim = None
         print("Model: Original U-Net (sigmoid output)")
+
 
     # ── Startup diagnostic: verify output intensity (Issue #1) ────────────────
     # Use extract_slice so the diagnostic slice is always (args.size, args.size).
@@ -1293,12 +1577,16 @@ def main() -> None:
         spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
     )
     _diag_seg = (_diag_seg > 0.5).astype(np.float32)
-    _diag_us = predict_ultrasound(model, _diag_slice, _diag_seg, device, is_pix2pix,
-                                  enhance=(not args.no_enhance))
+    if use_conv_sim:
+        _diag_label = make_label_map(_diag_slice, _diag_seg)
+        _diag_us = conv_sim.simulate(_diag_label)
+    else:
+        _diag_us = predict_ultrasound(model, _diag_slice, _diag_seg, device, is_pix2pix,
+                                      enhance=(not args.no_enhance))
     print(f"[startup] Diagnostic US - shape={_diag_us.shape} "
           f"min={_diag_us.min():.4f} max={_diag_us.max():.4f} "
           f"mean={_diag_us.mean():.4f} std={_diag_us.std():.4f}")
-    if _diag_us.mean() < 0.05:
+    if not use_conv_sim and _diag_us.mean() < 0.05:
         print("WARNING: predicted US mean < 0.05 - check checkpoint and "
               "normalisation. CT_HU_MIN/MAX may need to match your training config.")
 
@@ -1306,6 +1594,7 @@ def main() -> None:
     cv2.imwrite(str(run_dir / "diag_ct.png"), to_uint8_display(_diag_slice))
     cv2.imwrite(str(run_dir / "diag_us.png"), (_diag_us * 255).astype(np.uint8))
     del _diag_slice, _diag_us, _diag_quat
+
 
     # ── Optional comparison sample ─────────────────────────────────────────────
     training_ct = training_us = None
@@ -1396,13 +1685,11 @@ def main() -> None:
     print(f"Subject: {subject_dir.name} | Checkpoint: {args.checkpoint} | Device: {device}")
     print("Manual mode enabled (default). Press [M] to toggle Auto sweep. ESC or Q quits.")
 
-    # ── Inference strategy: decoupled background thread ────────────────────────
-    # Run U-Net / Pix2Pix inference asynchronously on a background thread.
-    # This prevents the slow neural network forward pass (especially on CPU,
-    # where it takes ~50-200ms) from blocking the 60+ FPS PyBullet physics and
-    # key-handling control loop.
-    use_async_infer = True
-    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    # ── Inference strategy ─────────────────────────────────────────────────────
+    # Model-based conv sim: always synchronous (no GPU thread needed, very fast)
+    # Neural network: decoupled background thread (see below)
+    use_async_infer = (not use_conv_sim)  # only for neural network modes
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1) if use_async_infer else None
 
     # Warm-up: one synchronous inference so last_pred_us starts as a real image.
     # Must use extract_slice so output is exactly (args.size, args.size).
@@ -1416,8 +1703,12 @@ def main() -> None:
         spacing=spacing, size=args.size, pixel_spacing=args.pixel_spacing,
     )
     _warmup_seg = (_warmup_seg > 0.5).astype(np.float32)
-    last_pred_us = predict_ultrasound(model, _warmup_slice, _warmup_seg, device,
-                                      is_pix2pix, not args.no_enhance)
+    if use_conv_sim:
+        _warmup_label = make_label_map(_warmup_slice, _warmup_seg)
+        last_pred_us = conv_sim.simulate(_warmup_label)
+    else:
+        last_pred_us = predict_ultrasound(model, _warmup_slice, _warmup_seg, device,
+                                          is_pix2pix, not args.no_enhance)
     del _warmup_slice, _warmup_seg, _identity_quat
     print(f"[warmup] Initial US frame - shape={last_pred_us.shape} "
           f"mean={last_pred_us.mean():.4f} max={last_pred_us.max():.4f}")
@@ -1427,6 +1718,7 @@ def main() -> None:
     def _submit_inference(ct_sl: np.ndarray, seg_sl: np.ndarray) -> "concurrent.futures.Future":
         return executor.submit(predict_ultrasound, model, ct_sl.copy(), seg_sl.copy(),
                                device, is_pix2pix, not args.no_enhance)
+
 
     # State
     last_time       = time.perf_counter()
@@ -1691,13 +1983,16 @@ def main() -> None:
             last_ct_stats = ct_stats
 
             # ── Inference ─────────────────────────────────────────────────────
-            # CPU: run synchronously every trigger frame so the display always
-            #      reflects the current slice. Slower but never stale.
-            # CUDA: one-frame-lookahead async pipeline – submit this frame's
-            #       slice, collect the previous frame's result (already done).
+            # Conv-sim: synchronous & fast (NumPy only, no GPU wait).
+            # CPU neural net: run synchronously every trigger frame.
+            # CUDA neural net: one-frame-lookahead async pipeline.
             if frame_counter % max(args.skip_frames + 1, 1) == 0:
                 t0 = time.perf_counter()
-                if use_async_infer:
+                if use_conv_sim:
+                    # Physics-based simulator: build label map and simulate
+                    _label = make_label_map(ct_slice, seg_slice)
+                    last_pred_us = conv_sim.simulate(_label)
+                elif use_async_infer:
                     # Non-blocking check: if no task is running, or if the current task is done, collect it and start a new one
                     if infer_future is None:
                         infer_future = _submit_inference(ct_slice, seg_slice)
@@ -1713,6 +2008,7 @@ def main() -> None:
                         model, ct_slice, seg_slice, device, is_pix2pix, not args.no_enhance)
                 add_timing(timings, "inference", time.perf_counter() - t0)
 
+
             pred_us = last_pred_us
 
             fps = 0.9 * fps + 0.1 * (1.0 / dt) if fps > 0 else 1.0 / dt
@@ -1724,10 +2020,12 @@ def main() -> None:
             if z_locked: locks.append("Z")
             locks_str = ", ".join(locks) if locks else "None"
             view_str = "In-Plane" if abs(abs(manual_yaw) - np.pi/2) < 0.4 else "Out-of-Plane"
+            sim_mode_label = "MB-Conv" if use_conv_sim else ("Pix2Pix" if is_pix2pix else "U-Net")
             mode_str = [
-                f"Mode: {'AUTO' if is_auto else 'MANUAL'} | Snap: {'ON' if snap_on else 'OFF'}",
+                f"Mode: {'AUTO' if is_auto else 'MANUAL'} | Snap: {'ON' if snap_on else 'OFF'} | Sim: {sim_mode_label}",
                 f"Speed: {pos_speed:.2f} m/s | Lock: {locks_str} | View: {view_str}"
             ]
+
             ct_display = overlay_status(to_uint8_display(ct_slice), probe_position,
                                         hit_position, hit_distance, ct_center, fps,
                                         ct_stats if args.diagnostic else None,
@@ -1805,6 +2103,7 @@ def main() -> None:
         if p.isConnected(client):
             p.disconnect(client)
         print(f"[log] Stats saved to {run_dir / 'stats.csv'}")
+
 
 
 if __name__ == "__main__":
