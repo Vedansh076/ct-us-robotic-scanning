@@ -58,13 +58,13 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
 
 ## Stage 4: Model-Based (Physics/Convolution) Ultrasound Simulation
 
-- [/] **1. Implement Model-Based US Simulator**
-  - [ ] Add `ModelBasedUSSimulator` class to `live_unet_demo.py` (NumPy physics-based, no neural network)
-  - [ ] Add `--sim-mode {unet,pix2pix,conv}` CLI argument
-  - [ ] Update `main()` to skip model loading when `--sim-mode conv`
-  - [ ] Dispatch inference to `ModelBasedUSSimulator.simulate()` in the sim loop
-  - [ ] Add `make_label_map(ct_slice, seg_slice)` helper for 3-class label map
-  - [ ] Verify bone hyperechoic reflectors + acoustic shadowing appear correctly
+- [x] **1. Implement Model-Based US Simulator**
+  - [x] Add `ModelBasedUSSimulator` class to `live_unet_demo.py` (NumPy physics-based, no neural network)
+  - [x] Add `--sim-mode {unet,pix2pix,conv}` CLI argument
+  - [x] Update `main()` to skip model loading when `--sim-mode conv`
+  - [x] Dispatch inference to `ModelBasedUSSimulator.simulate()` in the sim loop
+  - [x] Add `make_label_map(ct_slice, seg_slice)` helper for 3-class label map
+  - [x] Verify bone hyperechoic reflectors + acoustic shadowing appear correctly (echo_bone=0.46, echo_shadow=0.13)
 
 ## Stage 3: OpenAI Gymnasium Environment Wrapper
 

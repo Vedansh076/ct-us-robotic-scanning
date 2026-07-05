@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** All stages of the pipeline have been implemented and verified. The 2-channel semantic-guided U-Net architecture is fully integrated, and the Stage 3 OpenAI Gymnasium Environment (`robotic_us_env.py`) has been completed and verified via `test_gym_env.py`. The active focus is now on executing and monitoring the A2C reinforcement learning training (either locally or on Google Colab using `COLAB_INSTRUCTIONS.md`), visualizing the progress via TensorBoard, and verifying the final policy. U-Net model retraining remains delayed until GPU access is available.
+* **Current Focus:** Stage 4 (Model-Based US Simulation) is now complete. A physics/convolution-based ultrasound simulator (`ModelBasedUSSimulator`) has been added to `live_unet_demo.py`, replicating SonoGym's `USSimulatorConv` in pure NumPy. Launch with `--sim-mode conv` for network-free B-mode synthesis. The next priorities are: (1) visual verification of `--sim-mode conv` output quality by running the live demo, (2) U-Net model retraining on UltraBones100k when GPU is available, and (3) continuing A2C reinforcement learning training (see `COLAB_INSTRUCTIONS.md`).
 
 ---
 
