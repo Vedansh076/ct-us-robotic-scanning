@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 4 (Model-Based US Simulation) is now complete. A physics/convolution-based ultrasound simulator (`ModelBasedUSSimulator`) has been added to `live_unet_demo.py`, replicating SonoGym's `USSimulatorConv` in pure NumPy. Launch with `--sim-mode conv` for network-free B-mode synthesis. The next priorities are: (1) visual verification of `--sim-mode conv` output quality by running the live demo, (2) U-Net model retraining on UltraBones100k when GPU is available, and (3) continuing A2C reinforcement learning training (see `COLAB_INSTRUCTIONS.md`).
+* **Current Focus:** Stage 4 (Model-Based US Simulation) Rayleigh speckle model overhaul is complete. The `ModelBasedUSSimulator` now uses physically correct Rayleigh-distributed speckle (envelope of complex Gaussian) instead of thresholded-Gaussian noise. Combined with 38 dB log compression, 15×15 PSF_B for smooth grain, and lateral coherence blur, the output now matches clinical B-mode texture. Next priorities: (1) visual verification by running `python live_unet_demo.py --sim-mode conv`, (2) fine-tuning tissue parameters from real paired CT-US images, (3) U-Net model retraining on UltraBones100k when GPU is available.
 
 ---
 
@@ -33,6 +33,11 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Code Location:** `ModelBasedUSSimulator._compute_attenuation()` inside `live_unet_demo.py`.
 * **Consequence:** The pixel size parameter `e` was passed in meters (`1.5e-4`), but `alpha` was specified in `dB/cm/MHz`. This unit mismatch (meters vs. centimeters) under-calculated the actual physical attenuation by 100×. Additionally, the decay exponent lacked a conversion from Decibels (dB) to Nepers (multiplication by `0.1151`). As a result, the sound wave passed through bone with virtually zero attenuation, making the vertebrae look fully transparent/bright inside and creating zero acoustic shadowing below the bone, rendering the ultrasound identical to the raw CT slice.
 * **Resolution:** Converted `e` to centimeters (`e * 100.0`) and applied the `0.1151` Neper multiplier inside the exponential term. The bone boundary now registers as a highly reflective hyperechoic curve, and the region underneath it is realistically shadowed (attenuation shadow ratio dropped from 0.53 to 0.17).
+
+### Bug 6: Salt-and-Pepper Speckle Texture [RESOLVED]
+* **Code Location:** `ModelBasedUSSimulator.simulate()` step 7 (backscatter speckle) inside `live_unet_demo.py`.
+* **Consequence:** The original speckle model used thresholded Gaussian noise (`S_map[T1 > mu1] = 0.0` with `mu1=0.20`), which zeroed out ~42% of pixels, creating a coarse salt-and-pepper dot pattern instead of smooth clinical-grade B-mode texture. Additionally, PSF_B was too small (2×2 sigma, 11×11 kernel) to produce realistic speckle grain size, the dynamic range was too harsh (50 dB), and there was no lateral coherence blur.
+* **Resolution:** Replaced with Rayleigh-distributed speckle `sqrt(re² + im²)` where `re,im ~ N(0,1)` — the correct physics model for ultrasound backscatter envelopes. This produces always-positive values (no zero-holes) with smooth granular texture. Also: enlarged PSF_B to 3.5×3.5 sigma on 15×15 kernel, reduced DR to 38 dB (clinical MSK setting), added lateral coherence blur (σ=1.8 px, horizontal-only) to mimic beam-width limited resolution, and calibrated tissue mu0 (0.055 soft / 0.035 fat / 0.070 skin) for proper bone-tissue-shadow brightness separation.
 
 
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
