@@ -66,6 +66,15 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Add `make_label_map(ct_slice, seg_slice)` helper for 3-class label map
   - [x] Verify bone hyperechoic reflectors + acoustic shadowing appear correctly (echo_bone=0.46, echo_shadow=0.13)
 
+- [x] **2. Realism & Physics Overhaul (v3)**
+  - [x] Implement Rayleigh-distributed speckle (envelope of complex Gaussian) to eliminate black-hole artifacts and produce smooth, granular B-mode texture.
+  - [x] Add CT-modulated backscatter to generate tissue density heterogeneity (vessels, fascia, muscle striations).
+  - [x] Add large-scale speckle modulation (SonoGym-style Al/fl parameters) for macro-scale tissue patterns.
+  - [x] Add carrier-modulated specular reflection PSF (`cos(2π·f·x)`) to simulate transducer lateral sidelobes on bone echoes.
+  - [x] Implement attenuation diffraction (horizontal Gaussian blur of attenuation map) for soft, realistic shadow boundaries.
+  - [x] Add electronic noise floor and depth-independent noise mixing to prevent pure black shadows.
+
+
 ## Stage 3: OpenAI Gymnasium Environment Wrapper
 
 - [x] **1. Create Gymnasium Environment Wrapper**
