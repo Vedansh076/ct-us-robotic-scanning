@@ -27,6 +27,8 @@ dataset/
 *.jpeg
 *.pptx
 *.txt
+!requirements.txt
+!*requirements.txt
 *.csv
 
 # Temporary / Scratch Files
