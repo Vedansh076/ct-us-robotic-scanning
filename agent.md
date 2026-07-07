@@ -39,11 +39,16 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Consequence:** The original speckle model used thresholded Gaussian noise (`S_map[T1 > mu1] = 0.0` with `mu1=0.20`), which zeroed out ~42% of pixels, creating a coarse salt-and-pepper dot pattern instead of smooth clinical-grade B-mode texture. Additionally, PSF_B was too small (2×2 sigma, 11×11 kernel) to produce realistic speckle grain size, the dynamic range was too harsh (50 dB), and there was no lateral coherence blur.
 * **Resolution:** Replaced with Rayleigh-distributed speckle `sqrt(re² + im²)` where `re,im ~ N(0,1)` — the correct physics model for ultrasound backscatter envelopes. This produces always-positive values (no zero-holes) with smooth granular texture. Also: enlarged PSF_B to 3.5×3.5 sigma on 15×15 kernel, reduced DR to 38 dB (clinical MSK setting), added lateral coherence blur (σ=1.8 px, horizontal-only) to mimic beam-width limited resolution, and calibrated tissue mu0 (0.055 soft / 0.035 fat / 0.070 skin) for proper bone-tissue-shadow brightness separation.
 
+### Bug 7: Evaluation Subject Directory Scanning Mismatch [RESOLVED]
+* **Code Location:** `live_unet_demo.py` under the `--eval` mode branch (line 1025).
+* **Consequence:** The script only searched for directories containing a file named exactly `CT.nii`. Since the new TotalSegmentator patient data format stores scans as lowercase `ct.nii.gz` (and possibly other variants supported by `load_ct_subject()`), the script failed to locate any subjects in the evaluation directory and exited with "No subjects found".
+* **Resolution:** Replaced the check with an `any()` check over the full list of supported NIfTI filenames: `["CT.nii", "CT.nii.gz", "ct.nii.gz", "ct.nii"]`. The evaluation script now successfully identifies and runs inference on all 5 patient subjects.
+
 
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
 * **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
-* **Generative Training:** We will train the model on the **UltraBones100k** dataset (ex-vivo rigid registration) to achieve maximum B-mode realism.
-* **Simulator Anatomy:** We will use **CT-only data** (e.g. TotalSegmentator) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
+* **Generative Training:** We will train/fine-tune the model on the **Cavalcanti et al. Robotic Lumbar Spine dataset** (and/or simulated lumbar spine pairs) to align with our clinical focus on lumbar spine navigation, using UltraBones100k only as a pre-training/secondary baseline.
+* **Simulator Anatomy:** We will use **CT spine data** (specifically the TotalSegmentator patient lumbar vertebrae) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
 
 ### Decision 2: Curved Clinical Probe & Flange Mount (Visual Design)
 * **Visuals:** Redesigned the probe shape to look like a real curved/convex abdominal array. Replaced the boxy lower wedge with a horizontally oriented cylinder along the X-axis (radius `0.015` m, length `0.056` m). This provides a smooth, rounded scanning footprint that tapers cleanly into the cylinder handle with zero sharp boxy corners.

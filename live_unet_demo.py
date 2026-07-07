@@ -1022,7 +1022,10 @@ def run_evaluation(args: argparse.Namespace) -> None:
         eval_dir = subject_dir.parent
     print(f"[eval] Scanning subjects in {eval_dir}")
 
-    subjects = sorted([d for d in eval_dir.iterdir() if d.is_dir() and (d / "CT.nii").exists()])
+    subjects = sorted([
+        d for d in eval_dir.iterdir()
+        if d.is_dir() and any((d / c).exists() for c in ["CT.nii", "CT.nii.gz", "ct.nii.gz", "ct.nii"])
+    ])
     if not subjects:
         print(f"[eval] No subjects found in {eval_dir}.")
         sys.exit(0)
