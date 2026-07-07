@@ -42,8 +42,8 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
     - [x] Run `prepare_cavalcanti.py --discover` to verify dataset structure on GPU machine
     - [x] Run `prepare_cavalcanti.py` full preprocessing (ICP registration + oblique reslicing)
     - [x] Train 2-channel U-Net on Cavalcanti processed data
-    - [/] Train Pix2Pix on Cavalcanti processed data
-    - [ ] Copy trained checkpoint back to local workspace
+    - [x] Train Pix2Pix on Cavalcanti processed data
+    - [/] Copy trained checkpoint back to local workspace
 
 - [x] **3. Update Simulator HUD & Control Features**
   - [x] Port arrow-key manual controls and gripper finger-locking mechanics to `live_unet_demo.py`
