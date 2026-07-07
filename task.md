@@ -32,7 +32,18 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Adapt U-Net/Pix2Pix architectures in `model/model.py` and `model/pix2pix/model.py` to take 2-channel input (CT + Seg)
   - [x] Update `model/dataset.py` to load, normalize, and stack both CT and label slices
   - [x] Update `live_unet_demo.py` and `extract_slice.py` to slice and stack label volumes during simulation
-  - [ ] Retrain the U-Net model using the corrected training script (Delayed: User has no GPU access right now)
+  - [/] Retrain the U-Net/Pix2Pix model on the Cavalcanti Spine Dataset using the remote GPU machine
+    - [x] Set up Conda environment and Git repository on remote GPU machine
+    - [x] Resolve file permissions and free up 71 GB disk space on GPU machine
+    - [x] Download Cavalcanti dataset (31.3 GB, completed)
+    - [x] Extract dataset (unzip complete, all 63 volunteers)
+    - [x] Write `prepare_cavalcanti.py` preprocessing script (full 3D oblique reslicing)
+    - [x] Update `train.py` and `train_pix2pix.py` with `--train_subjects auto` CLI support
+    - [ ] Run `prepare_cavalcanti.py --discover` to verify dataset structure on GPU machine
+    - [ ] Run `prepare_cavalcanti.py` full preprocessing (ICP registration + oblique reslicing)
+    - [ ] Train 2-channel U-Net on Cavalcanti processed data
+    - [ ] Train Pix2Pix on Cavalcanti processed data
+    - [ ] Copy trained checkpoint back to local workspace
 
 - [x] **3. Update Simulator HUD & Control Features**
   - [x] Port arrow-key manual controls and gripper finger-locking mechanics to `live_unet_demo.py`

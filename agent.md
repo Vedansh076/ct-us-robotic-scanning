@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 4 (Model-Based US Simulation) Rayleigh speckle model overhaul is complete. The `ModelBasedUSSimulator` now uses physically correct Rayleigh-distributed speckle (envelope of complex Gaussian) instead of thresholded-Gaussian noise. Combined with 38 dB log compression, 15×15 PSF_B for smooth grain, and lateral coherence blur, the output now matches clinical B-mode texture. Next priorities: (1) visual verification by running `python live_unet_demo.py --sim-mode conv`, (2) fine-tuning tissue parameters from real paired CT-US images, (3) U-Net model retraining on UltraBones100k when GPU is available.
+* **Current Focus:** Stage 2 — Cavalcanti Robotic Spine Dataset preprocessing and model retraining. The 31.3 GB dataset is fully downloaded and extracted on the remote GPU machine. `prepare_cavalcanti.py` implements the full pipeline: DICOM→HU volume loading, bone thresholding, STL-based ICP registration (PCA pre-alignment + depth-offset correction), per-frame breathing compensation via body markers, and full 3D oblique reslicing using tracked probe poses. Both `train.py` and `train_pix2pix.py` now support `--train_subjects auto` to read volunteer-based train/val splits from `meta.json`. Next: push to GitHub, pull on GPU machine, run `--discover` to verify structure, then preprocess and train.
 
 ---
 

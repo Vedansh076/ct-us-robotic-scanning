@@ -24,6 +24,7 @@ import logging
 import os
 import time
 from pathlib import Path
+from typing import Callable, Optional
 
 import matplotlib
 matplotlib.use("Agg")  # non-interactive backend for server / headless runs
@@ -54,8 +55,8 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Default subject IDs
 # ---------------------------------------------------------------------------
-TRAIN_SUBJECTS = ["tcga-qq-a8vg", "tcga-qq-asv2"]
-VAL_SUBJECTS   = ["tcga-qq-asvc"]
+DEFAULT_TRAIN_SUBJECTS = ["tcga-qq-a8vg", "tcga-qq-asv2"]
+DEFAULT_VAL_SUBJECTS   = ["tcga-qq-asvc"]
 
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,12 @@ def parse_args() -> argparse.Namespace:
     # Resume
     p.add_argument("--resume", type=str, default="",
                    help="Path to checkpoint to resume from")
+
+    # Subject lists (Cavalcanti support)
+    p.add_argument("--train_subjects", type=str, default="",
+                   help="Comma-separated subject IDs, or 'auto' to read meta.json")
+    p.add_argument("--val_subjects",   type=str, default="",
+                   help="Comma-separated subject IDs, or 'auto' to read meta.json")
 
     return p.parse_args()
 
@@ -258,6 +265,49 @@ def run_epoch(
 
 
 # ---------------------------------------------------------------------------
+# Subject resolution (auto / CLI / default)
+# ---------------------------------------------------------------------------
+
+def _resolve_subjects(args: argparse.Namespace):
+    """
+    Determine train and val subject lists.
+
+    Priority:
+      1. --train_subjects auto  → read meta.json in data_root
+      2. --train_subjects s1,s2 → parse comma-separated list
+      3. (empty)                → fall back to DEFAULT_*_SUBJECTS
+    """
+    train_s = args.train_subjects.strip()
+    val_s   = args.val_subjects.strip()
+
+    if train_s.lower() == "auto" or val_s.lower() == "auto":
+        meta_path = Path(args.data_root) / "meta.json"
+        if not meta_path.exists():
+            log.error("--train_subjects auto requires meta.json in %s\n"
+                      "Run prepare_cavalcanti.py first.", args.data_root)
+            raise FileNotFoundError(str(meta_path))
+        with open(meta_path) as f:
+            meta = json.load(f)
+        t = meta.get("train_subjects", [])
+        v = meta.get("val_subjects", [])
+        log.info("Loaded auto-split from meta.json: %d train / %d val subjects",
+                 len(t), len(v))
+        return t, v
+
+    if train_s:
+        t = [s.strip() for s in train_s.split(",") if s.strip()]
+    else:
+        t = DEFAULT_TRAIN_SUBJECTS
+
+    if val_s:
+        v = [s.strip() for s in val_s.split(",") if s.strip()]
+    else:
+        v = DEFAULT_VAL_SUBJECTS
+
+    return t, v
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -277,9 +327,14 @@ def main() -> None:
     use_amp = device.type == "cuda"
     log.info(f"Device: {device} | AMP: {use_amp}")
 
+    # ----- Resolve subject lists -----
+    train_subjects, val_subjects = _resolve_subjects(args)
+    log.info(f"Train subjects: {train_subjects}")
+    log.info(f"Val   subjects: {val_subjects}")
+
     # ----- Datasets -----
-    train_ds = CTSimUSDataset(args.data_root, TRAIN_SUBJECTS)
-    val_ds   = CTSimUSDataset(args.data_root, VAL_SUBJECTS)
+    train_ds = CTSimUSDataset(args.data_root, train_subjects)
+    val_ds   = CTSimUSDataset(args.data_root, val_subjects)
     log.info(f"Train samples: {len(train_ds)} | Val samples: {len(val_ds)}")
 
     train_loader = DataLoader(
