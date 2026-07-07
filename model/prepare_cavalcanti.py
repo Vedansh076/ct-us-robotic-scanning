@@ -50,6 +50,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import json
 import logging
@@ -269,7 +270,8 @@ def load_all_stl_vertices(stl_dir: str) -> np.ndarray:
 def parse_robot_poses(pose_file: str) -> List[np.ndarray]:
     """
     Parse RUS_pose.txt → list of 4×4 transforms.
-    Expected format per line: x  y  z  roll  pitch  yaw
+    Expected format per line: x  y  z  roll  pitch  yaw  (last column timestamp ignored here)
+    Converts x,y,z translation from meters to millimeters.
     Auto-detects degrees vs radians.
     """
     rows: list = []
@@ -284,6 +286,10 @@ def parse_robot_poses(pose_file: str) -> List[np.ndarray]:
                 continue
             try:
                 vals = [float(p) for p in parts[:6]]
+                # Scale translation from meters to millimeters
+                vals[0] *= 1000.0
+                vals[1] *= 1000.0
+                vals[2] *= 1000.0
                 rows.append(vals)
             except ValueError:
                 continue
@@ -306,25 +312,30 @@ def parse_robot_poses(pose_file: str) -> List[np.ndarray]:
 def parse_body_markers(marker_file: str) -> List[Tuple[np.ndarray, float]]:
     """
     Parse body_marker.csv → [(4×4 transform, timestamp), ...].
-    Format: x, y, z, qx, qy, qz, qw, timestamp
+    Format is custom CSV with JSON-like dictionary strings:
+    time,header,pose
+    2023/05/16 11:21:06.632075131,"{'stamp': ...}","{'position': {'x': -346.08, 'y': 388.27, 'z': 2121.3}, ...}"
     """
     markers: list = []
     with open(marker_file, "r") as f:
         reader = csv.reader(f)
         for row in reader:
-            # skip header lines
-            if len(row) < 7:
+            if len(row) < 3 or row[0].lower().startswith("time"):
                 continue
             try:
-                vals = [float(v) for v in row[:8]]
-            except ValueError:
+                # Row structure: [time_str, header_dict_str, pose_dict_str]
+                pose_dict = ast.literal_eval(row[2])
+                pos = pose_dict["position"]
+                ori = pose_dict["orientation"]
+                T = quat_to_T(pos["x"], pos["y"], pos["z"],
+                             ori["x"], ori["y"], ori["z"], ori["w"])
+
+                header_dict = ast.literal_eval(row[1])
+                stamp = header_dict.get("stamp", {})
+                ts = float(stamp.get("secs", 0)) + float(stamp.get("nsecs", 0)) * 1e-9
+                markers.append((T, ts))
+            except Exception as e:
                 continue
-            if len(vals) >= 8:
-                T = quat_to_T(*vals[:7])
-                markers.append((T, vals[7]))
-            elif len(vals) >= 7:
-                T = quat_to_T(*vals[:7])
-                markers.append((T, float(len(markers))))
     return markers
 
 
