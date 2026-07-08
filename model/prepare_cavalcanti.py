@@ -833,6 +833,15 @@ def process_sweep(
                                      right_dir, down_dir,
                                      fov_w, fov_d, img_size)
         bone_slice = (bone_slice > 0.5).astype(np.float32)   # re-binarise
+        
+        # Debug: log voxel coordinates for the first 3 frames of each sweep
+        if saved < 3:
+            inv_aff = np.linalg.inv(affine)
+            center_homo = np.append(position, 1.0)
+            center_vox = (inv_aff @ center_homo)[:3]
+            log.info("    Frame %d: position_world=%s, position_vox=%s, ct_range=[%.1f, %.1f], bone_sum=%.0f",
+                     i, np.round(position, 1).tolist(), np.round(center_vox, 1).tolist(),
+                     ct_slice.min(), ct_slice.max(), bone_slice.sum())
 
         # --- Load US frame ---
         us_path = os.path.join(us_frame_dir, frame_files[i])
