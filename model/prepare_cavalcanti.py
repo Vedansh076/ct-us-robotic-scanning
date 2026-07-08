@@ -644,6 +644,35 @@ def get_robotic_sweeps(us_root: str, vol_id: str) -> List[str]:
     return sweeps
 
 
+def detect_us_crop(us_frame_dir: str, frame_files: List[str]) -> Tuple[int, int, int, int]:
+    """Dynamically detect the active ultrasound region using variance to ignore static UI."""
+    num_test = min(10, len(frame_files))
+    imgs = []
+    for f in frame_files[:num_test]:
+        path = os.path.join(us_frame_dir, f)
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is not None:
+            imgs.append(img.astype(np.float32))
+            
+    if not imgs:
+        return 177, 652, 548, 946  # Fallback
+        
+    imgs = np.stack(imgs)
+    variance = np.var(imgs, axis=0)
+    
+    mask = variance > 20
+    col_sums = mask.sum(axis=0)
+    row_sums = mask.sum(axis=1)
+    
+    active_cols = np.where(col_sums > mask.shape[0] * 0.05)[0]
+    active_rows = np.where(row_sums > mask.shape[1] * 0.05)[0]
+    
+    if len(active_cols) == 0 or len(active_rows) == 0:
+        return 177, 652, 548, 946  # Fallback
+        
+    return int(active_rows[0]), int(active_rows[-1] + 1), int(active_cols[0]), int(active_cols[-1] + 1)
+
+
 def process_sweep(
     vol_id: str,
     sweep_name: str,
@@ -712,6 +741,11 @@ def process_sweep(
         markers = parse_body_markers(marker_file)
     breath_comps = breathing_compensation(markers, n_frames)
 
+    # --- Auto-detect US crop ---
+    r1, r2, c1, c2 = detect_us_crop(us_frame_dir, frame_files)
+    log.info("  [%s/%s] Auto-detected US crop: rows %d-%d, cols %d-%d",
+             vol_id, sweep_name, r1, r2, c1, c2)
+
     # --- Output directories ---
     ct_out     = output_dir / "ct"
     label_out  = output_dir / "labels"
@@ -755,7 +789,7 @@ def process_sweep(
             continue
             
         # Crop to the active ultrasound region (removing static UI and padding)
-        us_img = us_img[177:652, 548:946]
+        us_img = us_img[r1:r2, c1:c2]
         
         us_img = cv2.resize(us_img, (img_size, img_size),
                             interpolation=cv2.INTER_AREA)
