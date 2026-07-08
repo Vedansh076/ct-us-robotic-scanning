@@ -452,11 +452,20 @@ def load_dicom_volume(dicom_dir: str) -> Tuple[np.ndarray, np.ndarray]:
 
     if n > 1:
         ipp_last  = np.array(dcm_list[-1].ImagePositionPatient, dtype=np.float64)
-        slice_vec = (ipp_last - ipp0) / (n - 1)
+        slice_vec_measured = (ipp_last - ipp0) / (n - 1)
+        measured_thick = np.linalg.norm(slice_vec_measured)
+        
+        # Check if the dataset anonymization corrupted the IPP Z-coordinates
+        if measured_thick < 0.1:
+            sl_thick = float(getattr(ds_ref, "SpacingBetweenSlices", getattr(ds_ref, "SliceThickness", 1.0)))
+            direction = slice_vec_measured / (measured_thick + 1e-12)
+            slice_vec = direction * sl_thick
+            # log.warning(f"Corrupted IPP detected! Using nominal thickness {sl_thick} instead of {measured_thick}")
+        else:
+            slice_vec = slice_vec_measured
     else:
-        sl_thick  = float(getattr(ds0, "SliceThickness", 1.0))
-        slice_vec = np.cross(row_dir, col_dir)
-        slice_vec = slice_vec / np.linalg.norm(slice_vec) * sl_thick
+        sl_thick  = float(getattr(ds_ref, "SliceThickness", 1.0))
+        slice_vec = slice_normal * sl_thick
 
     affine = np.eye(4)
     # The numpy volume has shape (slices, rows, cols).
