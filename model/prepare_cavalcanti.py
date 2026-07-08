@@ -1031,10 +1031,17 @@ def process_volunteer(
                 
         # Final refinement
         T_reg, rmse = icp(shifted_pos, stl_sub, init=best_T, max_iter=150)
+        
+        # Log final orientation values and sweep centroid
         T_ct_final = T_reg @ sweep_poses_map[sweeps[0]][0]
         final_x = T_ct_final[:3, 0]
         final_z = T_ct_final[:3, 2]
+        
+        registered_sweep = (T_reg[:3, :3] @ shifted_pos.T).T + T_reg[:3, 3]
+        mean_reg = np.mean(registered_sweep, axis=0)
+        
         log.info("[%s] Selected best candidate %d with final RMSE: %.2f mm", vol_id, best_idx, rmse)
+        log.info("[%s] Registered Sweep Mean: X=%.1f, Y=%.1f, Z=%.1f", vol_id, mean_reg[0], mean_reg[1], mean_reg[2])
         log.info("[%s] Final orientation: translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f",
                  vol_id, np.round(T_reg[:3, 3], 1).tolist(), final_x[0], final_z[1])
 
