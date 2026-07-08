@@ -125,19 +125,31 @@ def quat_to_T(x: float, y: float, z: float,
     return T
 
 
-def _pca_pre_align(src: np.ndarray, tgt: np.ndarray) -> np.ndarray:
-    """Centroid + PCA axis alignment.  Returns (4,4) rigid transform."""
+def get_pca_candidates(src: np.ndarray, tgt: np.ndarray) -> List[np.ndarray]:
     sc = src.mean(0)
     tc = tgt.mean(0)
     _, _, Vs = np.linalg.svd(src - sc, full_matrices=False)
     _, _, Vt = np.linalg.svd(tgt - tc, full_matrices=False)
-    R = Vt.T @ Vs
-    if np.linalg.det(R) < 0:          # fix reflection
-        Vt[-1] *= -1
-        R = Vt.T @ Vs
-    t = tc - R @ sc
-    T = np.eye(4); T[:3, :3] = R; T[:3, 3] = t
-    return T
+    
+    candidates = []
+    flips = [
+        np.array([1, 1, 1]),
+        np.array([-1, -1, 1]),
+        np.array([-1, 1, -1]),
+        np.array([1, -1, -1])
+    ]
+    for flip in flips:
+        Vs_f = Vs * flip[:, np.newaxis]
+        R = Vt.T @ Vs_f
+        if np.linalg.det(R) < 0:
+            Vt_f = Vt.copy()
+            Vt_f[-1, :] *= -1
+            R = Vt_f.T @ Vs_f
+        T = np.eye(4)
+        T[:3, :3] = R
+        T[:3, 3] = tc - R @ sc
+        candidates.append(T)
+    return candidates
 
 
 def icp(source: np.ndarray, target: np.ndarray,
@@ -915,9 +927,18 @@ def process_volunteer(
         else:
             stl_sub = stl_verts
 
-        # PCA pre-alignment + ICP
-        T_init = _pca_pre_align(shifted_pos, stl_sub)
-        T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=150)
+        # PCA pre-alignment + robust ICP over 4 candidates
+        candidates = get_pca_candidates(shifted_pos, stl_sub)
+        best_rmse = float('inf')
+        best_T = None
+        for T_init in candidates:
+            T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_T = T_reg
+                
+        # Final refinement
+        T_reg, rmse = icp(shifted_pos, stl_sub, init=best_T, max_iter=150)
         log.info("[%s] Registration RMSE: %.2f mm", vol_id, rmse)
 
         if rmse > 50.0:
