@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 2 — Cavalcanti Robotic Spine Dataset preprocessing and model retraining. The 31.3 GB dataset is fully downloaded and extracted on the remote GPU machine. `prepare_cavalcanti.py` implements the full pipeline: DICOM→HU volume loading, bone thresholding, STL-based ICP registration (PCA pre-alignment + depth-offset correction), per-frame breathing compensation via body markers, and full 3D oblique reslicing using tracked probe poses. Both `train.py` and `train_pix2pix.py` now support `--train_subjects auto` to read volunteer-based train/val splits from `meta.json`. Next: push to GitHub, pull on GPU machine, run `--discover` to verify structure, then preprocess and train.
+* **Current Focus:** Stage 2 — Cavalcanti Robotic Spine Dataset preprocessing is now **successfully completed** for all 7 volunteers. Registration alignments have been visually verified (via `plot_middle_check.py`) showing high-quality, 100% in-bounds CT slices, bone masks, and matching US frames. Next: Run `train.py` and `train_pix2pix.py` on the remote GPU machine to retrain the 2-channel models on the preprocessed dataset, then copy the trained checkpoints back to the local workspace.
 
 ---
 
@@ -43,6 +43,16 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Code Location:** `live_unet_demo.py` under the `--eval` mode branch (line 1025).
 * **Consequence:** The script only searched for directories containing a file named exactly `CT.nii`. Since the new TotalSegmentator patient data format stores scans as lowercase `ct.nii.gz` (and possibly other variants supported by `load_ct_subject()`), the script failed to locate any subjects in the evaluation directory and exited with "No subjects found".
 * **Resolution:** Replaced the check with an `any()` check over the full list of supported NIfTI filenames: `["CT.nii", "CT.nii.gz", "ct.nii.gz", "ct.nii"]`. The evaluation script now successfully identifies and runs inference on all 5 patient subjects.
+
+### Bug 8: PCA Rotation Candidate Centering Offset [RESOLVED]
+* **Code Location:** `model/prepare_cavalcanti.py` in 90-degree PCA candidate pre-alignment.
+* **Consequence:** The 90-degree rotated PCA candidate was rotated around the local translation origin `T_init[:3, 3]` instead of the actual centroid of the subsampled STL vertices `tc`. This shifted the rotated candidate's search center by up to 2.5 meters away from the patient torso, causing ICP to fail to align the rotated sweeps.
+* **Resolution:** Corrected the centering shift in `prepare_cavalcanti.py` by applying rotation relative to the target centroid `tc`: `T_rot[:3, 3] = R90_3x3 @ (T_init[:3, 3] - tc) + tc`.
+
+### Bug 9: Sagittal Sweep Sideways Orientation Penalty [RESOLVED]
+* **Code Location:** `model/prepare_cavalcanti.py` candidate orientation safeguard.
+* **Consequence:** The previous transverse constraint `abs(probe_x[0]) < 0.4` was penalizing candidates where the probe's width was aligned longitudinally. However, in the Cavalcanti dataset, sweeps are captured in different directions—R1 is a sagittal sweep (meaning the probe width is aligned longitudinally, so `abs(probe_x[0])` is close to 0). This caused the correct candidates to be penalized, forcing ICP to select wrong or out-of-bounds candidates for URS02-07, resulting in black/rotated slices.
+* **Resolution:** Removed the strict `abs(probe_x[0]) < 0.4` sideways check since the fixed rotation center prevents sideways alignment drift naturally. Kept only the universal ceiling-pointing check (`probe_z[1] > 0`).
 
 
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
