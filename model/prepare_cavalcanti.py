@@ -962,19 +962,19 @@ def process_volunteer(
         candidates = []
         for T_init in base_candidates:
             candidates.append(T_init)
-            # Add a 90-degree rotated version around the Z-axis
-            R90 = np.array([[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+            # Add a 90-degree rotated version around the Z-axis centered at the STL centroid
+            tc = np.mean(stl_sub, axis=0)
+            R90_3x3 = np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]])
             T_rot = T_init.copy()
-            # Rotate around the center of the STL
-            center = T_init[:3, 3]
-            T_rot[:3, 3] = 0
-            T_rot = R90 @ T_rot
-            T_rot[:3, 3] = center
+            T_rot[:3, :3] = R90_3x3 @ T_init[:3, :3]
+            T_rot[:3, 3] = R90_3x3 @ (T_init[:3, 3] - tc) + tc
             candidates.append(T_rot)
 
         best_rmse = float('inf')
         best_T = None
-        for T_init in candidates:
+        best_idx = -1
+        log.info("[%s] Evaluating %d registration candidates...", vol_id, len(candidates))
+        for idx, T_init in enumerate(candidates):
             T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
             
             # Enforce physical orientation:
@@ -982,22 +982,37 @@ def process_volunteer(
             probe_x = T_ct_test[:3, 0]  # Width of probe
             probe_z = T_ct_test[:3, 2]  # Depth of probe
             
+            p_ceiling = False
+            p_sideways = False
+            
             # 1. Probe MUST point INTO the patient (Negative Y, Anterior)
             if probe_z[1] > 0:
                 rmse += 1000.0  # Massive penalty for shooting at ceiling
+                p_ceiling = True
                 
             # 2. Probe MUST be placed Transversely (Probe X aligned with Patient X)
             # If it is rotated sideways, probe_x will align with Patient Z.
-            if abs(probe_x[0]) < 0.5:
+            if abs(probe_x[0]) < 0.4:
                 rmse += 1000.0  # Massive penalty for sideways alignment
+                p_sideways = True
+                
+            log.info("  Candidate %d: raw_rmse=%.2f, translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f, ceiling_pen=%s, sideways_pen=%s, final_rmse=%.2f",
+                     idx, rmse - (1000.0 if p_ceiling else 0.0) - (1000.0 if p_sideways else 0.0),
+                     np.round(T_reg[:3, 3], 1).tolist(), probe_x[0], probe_z[1], p_ceiling, p_sideways, rmse)
                 
             if rmse < best_rmse:
                 best_rmse = rmse
                 best_T = T_reg
+                best_idx = idx
                 
         # Final refinement
         T_reg, rmse = icp(shifted_pos, stl_sub, init=best_T, max_iter=150)
-        log.info("[%s] Registration RMSE: %.2f mm", vol_id, rmse)
+        T_ct_final = T_reg @ sweep_poses_map[sweeps[0]][0]
+        final_x = T_ct_final[:3, 0]
+        final_z = T_ct_final[:3, 2]
+        log.info("[%s] Selected best candidate %d with final RMSE: %.2f mm", vol_id, best_idx, rmse)
+        log.info("[%s] Final orientation: translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f",
+                 vol_id, np.round(T_reg[:3, 3], 1).tolist(), final_x[0], final_z[1])
 
         if rmse > 50.0:
             log.warning("[%s] Registration RMSE > 50 mm — results may be poor",
