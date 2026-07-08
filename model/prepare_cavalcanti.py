@@ -423,7 +423,14 @@ def load_dicom_volume(dicom_dir: str) -> Tuple[np.ndarray, np.ndarray]:
     if not dcm_list:
         raise FileNotFoundError(f"No DICOM images in {dicom_dir}")
 
-    dcm_list.sort(key=lambda d: float(d.ImagePositionPatient[2]))
+    # Determine the slice normal vector from the first slice
+    ds_ref = dcm_list[0]
+    iop = np.array(ds_ref.ImageOrientationPatient, dtype=np.float64)
+    slice_normal = np.cross(iop[:3], iop[3:])
+
+    # Sort slices by their position along the slice normal
+    dcm_list.sort(key=lambda d: np.dot(np.array(d.ImagePositionPatient, dtype=np.float64), slice_normal))
+    
     n = len(dcm_list)
     rows = dcm_list[0].Rows
     cols = dcm_list[0].Columns
@@ -452,10 +459,12 @@ def load_dicom_volume(dicom_dir: str) -> Tuple[np.ndarray, np.ndarray]:
         slice_vec = slice_vec / np.linalg.norm(slice_vec) * sl_thick
 
     affine = np.eye(4)
-    affine[:3, 0] = row_dir * ps[1]     # Δcol → world
+    # The numpy volume has shape (slices, rows, cols).
+    # Therefore, dimension 0 corresponds to slices, dimension 1 to rows, and dimension 2 to cols.
+    affine[:3, 0] = slice_vec           # Δslice → world
     affine[:3, 1] = col_dir * ps[0]     # Δrow → world
-    affine[:3, 2] = slice_vec            # Δslice → world
-    affine[:3, 3] = ipp0                 # origin
+    affine[:3, 2] = row_dir * ps[1]     # Δcol → world
+    affine[:3, 3] = ipp0                # origin
 
     log.info("  DICOM volume: %s  spacing: %.2f×%.2f×%.2f mm",
              volume.shape,
