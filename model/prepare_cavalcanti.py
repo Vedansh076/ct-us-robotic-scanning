@@ -557,7 +557,7 @@ def oblique_reslice(volume: np.ndarray, affine: np.ndarray,
     vox  = (inv_aff @ homo.T).T[:, :3]              # (N, 3) = (col, row, slice)
 
     # map_coordinates expects (axis0=slice, axis1=row, axis2=col)
-    coords = np.array([vox[:, 2], vox[:, 1], vox[:, 0]])
+    coords = np.array([vox[:, 0], vox[:, 1], vox[:, 2]])
     result = map_coordinates(volume, coords, order=1,
                              mode="constant", cval=0.0)
     return result.reshape(size, size).astype(np.float32)
