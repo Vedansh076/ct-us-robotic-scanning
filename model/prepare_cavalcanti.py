@@ -957,20 +957,39 @@ def process_volunteer(
         else:
             stl_sub = stl_verts
 
-        # PCA pre-alignment + robust ICP over 4 candidates
-        candidates = get_pca_candidates(shifted_pos, stl_sub)
+        # PCA pre-alignment + robust ICP over 8 candidates (to prevent sideways alignment)
+        base_candidates = get_pca_candidates(shifted_pos, stl_sub)
+        candidates = []
+        for T_init in base_candidates:
+            candidates.append(T_init)
+            # Add a 90-degree rotated version around the Z-axis
+            R90 = np.array([[0, -1, 0, 0], [1, 0, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+            T_rot = T_init.copy()
+            # Rotate around the center of the STL
+            center = T_init[:3, 3]
+            T_rot[:3, 3] = 0
+            T_rot = R90 @ T_rot
+            T_rot[:3, 3] = center
+            candidates.append(T_rot)
+
         best_rmse = float('inf')
         best_T = None
         for T_init in candidates:
             T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
             
             # Enforce physical orientation:
-            # In LPS (patient prone), Y+ is Posterior (Back), Y- is Anterior (Belly).
-            # The probe Z-axis (down_dir) MUST point INTO the patient (Negative Y).
-            # If down_dir[1] > 0, the probe is shooting at the ceiling!
             T_ct_test = T_reg @ sweep_poses_map[sweeps[0]][0]
-            if T_ct_test[1, 2] > 0:
-                rmse += 1000.0  # Massive penalty for upside-down candidates
+            probe_x = T_ct_test[:3, 0]  # Width of probe
+            probe_z = T_ct_test[:3, 2]  # Depth of probe
+            
+            # 1. Probe MUST point INTO the patient (Negative Y, Anterior)
+            if probe_z[1] > 0:
+                rmse += 1000.0  # Massive penalty for shooting at ceiling
+                
+            # 2. Probe MUST be placed Transversely (Probe X aligned with Patient X)
+            # If it is rotated sideways, probe_x will align with Patient Z.
+            if abs(probe_x[0]) < 0.5:
+                rmse += 1000.0  # Massive penalty for sideways alignment
                 
             if rmse < best_rmse:
                 best_rmse = rmse
