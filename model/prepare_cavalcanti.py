@@ -945,6 +945,15 @@ def process_volunteer(
         best_T = None
         for T_init in candidates:
             T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
+            
+            # Enforce physical orientation:
+            # In LPS (patient prone), Y+ is Posterior (Back), Y- is Anterior (Belly).
+            # The probe Z-axis (down_dir) MUST point INTO the patient (Negative Y).
+            # If down_dir[1] > 0, the probe is shooting at the ceiling!
+            T_ct_test = T_reg @ sweep_poses_map[sweeps[0]][0]
+            if T_ct_test[1, 2] > 0:
+                rmse += 1000.0  # Massive penalty for upside-down candidates
+                
             if rmse < best_rmse:
                 best_rmse = rmse
                 best_T = T_reg
