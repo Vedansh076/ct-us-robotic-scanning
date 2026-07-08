@@ -753,6 +753,10 @@ def process_sweep(
             log.warning("  [%s/%s] Could not read frame %s", vol_id, sweep_name,
                         frame_files[i])
             continue
+            
+        # Crop to the active ultrasound region (removing static UI and padding)
+        us_img = us_img[177:652, 548:946]
+        
         us_img = cv2.resize(us_img, (img_size, img_size),
                             interpolation=cv2.INTER_AREA)
         us_arr = us_img.astype(np.float32) * SIMUS_SCALE   # → [0, 220]
