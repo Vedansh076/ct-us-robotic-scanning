@@ -833,8 +833,10 @@ def process_sweep(
                                      right_dir, down_dir,
                                      fov_w, fov_d, img_size)
         bone_slice = (bone_slice > 0.5).astype(np.float32)   # re-binarise
-        
 
+        # Skip frames where the CT slice is entirely outside the volume
+        if ct_slice.max() == 0.0 and ct_slice.min() == 0.0:
+            continue
 
         # --- Load US frame ---
         us_path = os.path.join(us_frame_dir, frame_files[i])
