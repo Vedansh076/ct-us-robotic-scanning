@@ -834,14 +834,7 @@ def process_sweep(
                                      fov_w, fov_d, img_size)
         bone_slice = (bone_slice > 0.5).astype(np.float32)   # re-binarise
         
-        # Debug: log voxel coordinates for the first 3 frames of each sweep
-        if saved < 3:
-            inv_aff = np.linalg.inv(affine)
-            center_homo = np.append(position, 1.0)
-            center_vox = (inv_aff @ center_homo)[:3]
-            log.info("    Frame %d: position_world=%s, position_vox=%s, ct_range=[%.1f, %.1f], bone_sum=%.0f",
-                     i, np.round(position, 1).tolist(), np.round(center_vox, 1).tolist(),
-                     ct_slice.min(), ct_slice.max(), bone_slice.sum())
+
 
         # --- Load US frame ---
         us_path = os.path.join(us_frame_dir, frame_files[i])
@@ -894,20 +887,6 @@ def process_volunteer(
 
     try:
         ct_vol, affine = load_dicom_volume(dicom_dir)
-        n, rows, cols = ct_vol.shape
-        corners = np.array([
-            [0, 0, 0],
-            [n-1, 0, 0],
-            [0, rows-1, 0],
-            [0, 0, cols-1],
-            [n-1, rows-1, cols-1]
-        ])
-        corners_homo = np.column_stack([corners, np.ones(len(corners))])
-        corners_world = (affine @ corners_homo.T).T[:, :3]
-        log.info("[%s] CT World Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
-                 vol_id, corners_world[:, 0].min(), corners_world[:, 0].max(),
-                 corners_world[:, 1].min(), corners_world[:, 1].max(),
-                 corners_world[:, 2].min(), corners_world[:, 2].max())
     except Exception as e:
         log.error("[%s] DICOM load failed: %s", vol_id, e)
         return 0
@@ -925,11 +904,7 @@ def process_volunteer(
         stl_inner = _find_inner(str(stl_outer))
         try:
             stl_verts = load_all_stl_vertices(stl_inner)
-            log.info("[%s] STL vertices: %d, Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
-                     vol_id, len(stl_verts),
-                     stl_verts[:, 0].min(), stl_verts[:, 0].max(),
-                     stl_verts[:, 1].min(), stl_verts[:, 1].max(),
-                     stl_verts[:, 2].min(), stl_verts[:, 2].max())
+            log.info("[%s] STL vertices: %d", vol_id, len(stl_verts))
         except Exception as e:
             log.warning("[%s] STL load failed: %s", vol_id, e)
 
@@ -966,10 +941,6 @@ def process_volunteer(
 
     probe_positions = np.array(all_probe_pos)
     probe_z_dirs    = np.array(all_probe_dirs)
-    log.info("[%s] Robot Poses Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
-             vol_id, probe_positions[:, 0].min(), probe_positions[:, 0].max(),
-             probe_positions[:, 1].min(), probe_positions[:, 1].max(),
-             probe_positions[:, 2].min(), probe_positions[:, 2].max())
 
     # ---------- Registration ----------
     if stl_verts is not None and len(stl_verts) > 50:
@@ -1004,34 +975,15 @@ def process_volunteer(
         best_rmse = float('inf')
         best_T = None
         best_idx = -1
-        log.info("[%s] Evaluating %d registration candidates...", vol_id, len(candidates))
         for idx, T_init in enumerate(candidates):
-            # Compute initial RMSE before ICP
-            init_src = (T_init[:3, :3] @ shifted_pos.T).T + T_init[:3, 3]
-            tree_temp = KDTree(stl_sub)
-            dists_init, _ = tree_temp.query(init_src)
-            rmse_init = np.sqrt(np.mean(dists_init**2))
-            
-            log.info("  Candidate %d [INIT]: rmse=%.2f, translation=%s",
-                     idx, rmse_init, np.round(T_init[:3, 3], 1).tolist())
-            
             T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
             
             # Enforce physical orientation:
+            # Probe Z-axis (down_dir) must point INTO patient (negative Y in LPS)
             T_ct_test = T_reg @ sweep_poses_map[sweeps[0]][0]
-            probe_x = T_ct_test[:3, 0]  # Width of probe
-            probe_z = T_ct_test[:3, 2]  # Depth of probe
-            
-            p_ceiling = False
-            
-            # 1. Probe MUST point INTO the patient (Negative Y, Anterior)
+            probe_z = T_ct_test[:3, 2]
             if probe_z[1] > 0:
                 rmse += 1000.0  # Massive penalty for shooting at ceiling
-                p_ceiling = True
-                
-            log.info("  Candidate %d: raw_rmse=%.2f, translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f, ceiling_pen=%s, final_rmse=%.2f",
-                     idx, rmse - (1000.0 if p_ceiling else 0.0),
-                     np.round(T_reg[:3, 3], 1).tolist(), probe_x[0], probe_z[1], p_ceiling, rmse)
                 
             if rmse < best_rmse:
                 best_rmse = rmse
@@ -1040,19 +992,7 @@ def process_volunteer(
                 
         # Final refinement
         T_reg, rmse = icp(shifted_pos, stl_sub, init=best_T, max_iter=150)
-        
-        # Log final orientation values and sweep centroid
-        T_ct_final = T_reg @ sweep_poses_map[sweeps[0]][0]
-        final_x = T_ct_final[:3, 0]
-        final_z = T_ct_final[:3, 2]
-        
-        registered_sweep = (T_reg[:3, :3] @ shifted_pos.T).T + T_reg[:3, 3]
-        mean_reg = np.mean(registered_sweep, axis=0)
-        
-        log.info("[%s] Selected best candidate %d with final RMSE: %.2f mm", vol_id, best_idx, rmse)
-        log.info("[%s] Registered Sweep Mean: X=%.1f, Y=%.1f, Z=%.1f", vol_id, mean_reg[0], mean_reg[1], mean_reg[2])
-        log.info("[%s] Final orientation: translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f",
-                 vol_id, np.round(T_reg[:3, 3], 1).tolist(), final_x[0], final_z[1])
+        log.info("[%s] Registration RMSE: %.2f mm (candidate %d)", vol_id, rmse, best_idx)
 
         if rmse > 50.0:
             log.warning("[%s] Registration RMSE > 50 mm — results may be poor",
