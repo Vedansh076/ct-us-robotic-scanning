@@ -199,8 +199,11 @@ def icp(source: np.ndarray, target: np.ndarray,
 
 def _find_inner(d: str) -> str:
     """Navigate the nested dir: URS01_CT_raw/URS1_CT_raw/..."""
+    files = [f for f in os.listdir(d) if os.path.isfile(os.path.join(d, f))]
     subs = [s for s in os.listdir(d) if os.path.isdir(os.path.join(d, s))]
-    return os.path.join(d, subs[0]) if len(subs) == 1 else d
+    if len(subs) == 1 and len(files) == 0:
+        return os.path.join(d, subs[0])
+    return d
 
 
 def load_stl(path: str) -> np.ndarray:
