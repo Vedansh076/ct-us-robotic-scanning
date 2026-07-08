@@ -670,7 +670,16 @@ def detect_us_crop(us_frame_dir: str, frame_files: List[str]) -> Tuple[int, int,
     if len(active_cols) == 0 or len(active_rows) == 0:
         return 177, 652, 548, 946  # Fallback
         
-    return int(active_rows[0]), int(active_rows[-1] + 1), int(active_cols[0]), int(active_cols[-1] + 1)
+    r1, r2 = int(active_rows[0]), int(active_rows[-1] + 1)
+    c1, c2 = int(active_cols[0]), int(active_cols[-1] + 1)
+    
+    # Sanity check: The GE Logiq linear probe should have an aspect ratio near 50/60 (0.833).
+    # If a moving UI element (like a cine scrollbar) tricks the variance mask, the box will be too tall.
+    ratio = (c2 - c1) / (r2 - r1)
+    if ratio < 0.75 or ratio > 0.95:
+        return 177, 652, 548, 946  # Fallback to known good GE Logiq crop
+        
+    return r1, r2, c1, c2
 
 
 def process_sweep(
