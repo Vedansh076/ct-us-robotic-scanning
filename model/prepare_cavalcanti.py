@@ -885,6 +885,20 @@ def process_volunteer(
 
     try:
         ct_vol, affine = load_dicom_volume(dicom_dir)
+        n, rows, cols = ct_vol.shape
+        corners = np.array([
+            [0, 0, 0],
+            [n-1, 0, 0],
+            [0, rows-1, 0],
+            [0, 0, cols-1],
+            [n-1, rows-1, cols-1]
+        ])
+        corners_homo = np.column_stack([corners, np.ones(len(corners))])
+        corners_world = (affine @ corners_homo.T).T[:, :3]
+        log.info("[%s] CT World Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
+                 vol_id, corners_world[:, 0].min(), corners_world[:, 0].max(),
+                 corners_world[:, 1].min(), corners_world[:, 1].max(),
+                 corners_world[:, 2].min(), corners_world[:, 2].max())
     except Exception as e:
         log.error("[%s] DICOM load failed: %s", vol_id, e)
         return 0
@@ -902,7 +916,11 @@ def process_volunteer(
         stl_inner = _find_inner(str(stl_outer))
         try:
             stl_verts = load_all_stl_vertices(stl_inner)
-            log.info("[%s] STL vertices: %d", vol_id, len(stl_verts))
+            log.info("[%s] STL vertices: %d, Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
+                     vol_id, len(stl_verts),
+                     stl_verts[:, 0].min(), stl_verts[:, 0].max(),
+                     stl_verts[:, 1].min(), stl_verts[:, 1].max(),
+                     stl_verts[:, 2].min(), stl_verts[:, 2].max())
         except Exception as e:
             log.warning("[%s] STL load failed: %s", vol_id, e)
 
@@ -939,6 +957,10 @@ def process_volunteer(
 
     probe_positions = np.array(all_probe_pos)
     probe_z_dirs    = np.array(all_probe_dirs)
+    log.info("[%s] Robot Poses Bounds: X=[%.1f, %.1f], Y=[%.1f, %.1f], Z=[%.1f, %.1f]",
+             vol_id, probe_positions[:, 0].min(), probe_positions[:, 0].max(),
+             probe_positions[:, 1].min(), probe_positions[:, 1].max(),
+             probe_positions[:, 2].min(), probe_positions[:, 2].max())
 
     # ---------- Registration ----------
     if stl_verts is not None and len(stl_verts) > 50:
