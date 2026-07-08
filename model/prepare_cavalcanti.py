@@ -111,7 +111,18 @@ def euler_to_T(x: float, y: float, z: float,
                roll: float, pitch: float, yaw: float) -> np.ndarray:
     """Position + Euler XYZ (rad) → 4×4 homogeneous transform."""
     T = np.eye(4)
-    T[:3, :3] = Rotation.from_euler("xyz", [roll, pitch, yaw]).as_matrix()
+    R = Rotation.from_euler("xyz", [roll, pitch, yaw]).as_matrix()
+    
+    # The Cavalcanti dataset raw robot poses have Z pointing OUT of the flange.
+    # We rotate 180 degrees around local X so that Z points INTO the patient (depth).
+    R_flip = np.array([
+        [1,  0,  0],
+        [0, -1,  0],
+        [0,  0, -1]
+    ])
+    R = R @ R_flip
+    
+    T[:3, :3] = R
     T[:3, 3]  = [x, y, z]
     return T
 
@@ -145,6 +156,7 @@ def get_pca_candidates(src: np.ndarray, tgt: np.ndarray) -> List[np.ndarray]:
             Vt_f = Vt.copy()
             Vt_f[-1, :] *= -1
             R = Vt_f.T @ Vs_f
+            
         T = np.eye(4)
         T[:3, :3] = R
         T[:3, 3] = tc - R @ sc
