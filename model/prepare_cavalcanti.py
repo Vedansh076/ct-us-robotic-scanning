@@ -269,7 +269,15 @@ def load_stl(path: str) -> np.ndarray:
                 f.read(2)                      # attrib
 
     arr = np.array(verts, dtype=np.float32)
-    return np.unique(arr, axis=0)              # deduplicate shared vertices
+    arr = np.unique(arr, axis=0)              # deduplicate shared vertices
+    
+    # 3D Slicer exports STLs in the RAS coordinate system.
+    # The DICOM affine uses the LPS coordinate system.
+    # Convert RAS -> LPS by flipping the X and Y axes.
+    arr[:, 0] *= -1.0
+    arr[:, 1] *= -1.0
+    
+    return arr
 
 
 def load_all_stl_vertices(stl_dir: str) -> np.ndarray:
