@@ -997,6 +997,15 @@ def process_volunteer(
         best_idx = -1
         log.info("[%s] Evaluating %d registration candidates...", vol_id, len(candidates))
         for idx, T_init in enumerate(candidates):
+            # Compute initial RMSE before ICP
+            init_src = (T_init[:3, :3] @ shifted_pos.T).T + T_init[:3, 3]
+            tree_temp = KDTree(stl_sub)
+            dists_init, _ = tree_temp.query(init_src)
+            rmse_init = np.sqrt(np.mean(dists_init**2))
+            
+            log.info("  Candidate %d [INIT]: rmse=%.2f, translation=%s",
+                     idx, rmse_init, np.round(T_init[:3, 3], 1).tolist())
+            
             T_reg, rmse = icp(shifted_pos, stl_sub, init=T_init, max_iter=50)
             
             # Enforce physical orientation:
