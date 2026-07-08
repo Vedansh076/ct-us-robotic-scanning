@@ -808,6 +808,9 @@ def process_sweep(
     label_out.mkdir(parents=True, exist_ok=True)
     simus_out.mkdir(parents=True, exist_ok=True)
 
+    inv_aff = np.linalg.inv(affine)
+    n_slices, rows, cols = ct_vol.shape
+
     saved = 0
     for i in range(0, n_frames, stride):
         T_robot  = poses[i]
@@ -1039,10 +1042,17 @@ def _save_diagnostics(vol_id: str, output_dir: Path, img_size: int) -> None:
     label_dir = output_dir / "labels"
     simus_dir = output_dir / "simus"
 
-    files = sorted([f for f in os.listdir(ct_dir)
-                    if f.startswith(vol_id) and f.endswith(".npy")])[:4]
-    if not files:
+    all_files = sorted([f for f in os.listdir(ct_dir)
+                        if f.startswith(vol_id) and f.endswith(".npy")])
+    if not all_files:
         return
+        
+    n_files = len(all_files)
+    if n_files <= 4:
+        files = all_files
+    else:
+        idxs = [int(i) for i in np.linspace(0, n_files - 1, 4)]
+        files = [all_files[idx] for idx in idxs]
 
     fig, axes = plt.subplots(len(files), 3, figsize=(9, 3 * len(files)))
     if len(files) == 1:
