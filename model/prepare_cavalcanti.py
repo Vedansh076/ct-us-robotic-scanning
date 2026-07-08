@@ -1014,22 +1014,15 @@ def process_volunteer(
             probe_z = T_ct_test[:3, 2]  # Depth of probe
             
             p_ceiling = False
-            p_sideways = False
             
             # 1. Probe MUST point INTO the patient (Negative Y, Anterior)
             if probe_z[1] > 0:
                 rmse += 1000.0  # Massive penalty for shooting at ceiling
                 p_ceiling = True
                 
-            # 2. Probe MUST be placed Transversely (Probe X aligned with Patient X)
-            # If it is rotated sideways, probe_x will align with Patient Z.
-            if abs(probe_x[0]) < 0.4:
-                rmse += 1000.0  # Massive penalty for sideways alignment
-                p_sideways = True
-                
-            log.info("  Candidate %d: raw_rmse=%.2f, translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f, ceiling_pen=%s, sideways_pen=%s, final_rmse=%.2f",
-                     idx, rmse - (1000.0 if p_ceiling else 0.0) - (1000.0 if p_sideways else 0.0),
-                     np.round(T_reg[:3, 3], 1).tolist(), probe_x[0], probe_z[1], p_ceiling, p_sideways, rmse)
+            log.info("  Candidate %d: raw_rmse=%.2f, translation=%s, probe_x[0]=%.3f, probe_z[1]=%.3f, ceiling_pen=%s, final_rmse=%.2f",
+                     idx, rmse - (1000.0 if p_ceiling else 0.0),
+                     np.round(T_reg[:3, 3], 1).tolist(), probe_x[0], probe_z[1], p_ceiling, rmse)
                 
             if rmse < best_rmse:
                 best_rmse = rmse
