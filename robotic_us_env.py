@@ -159,6 +159,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.ct_volume = np.ascontiguousarray(self.ct_volume, dtype=np.float32)
         self.label_volume = np.ascontiguousarray(self.label_volume, dtype=np.float32)
         
+        # Convert to PyTorch Tensor on target device (GPU or CPU) for fast grid_sample
+        self.ct_volume = torch.from_numpy(self.ct_volume).to(self.device)
+        self.label_volume = torch.from_numpy(self.label_volume).to(self.device)
+        
         # Load U-Net Model (sigmoid)
         if not self.skip_unet:
             self.model = load_unet(self.checkpoint_path, self.device, base_features=self.base_features, dropout=0.0)

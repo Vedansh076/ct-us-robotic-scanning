@@ -16,23 +16,30 @@ def profile():
     
     env.reset()
     
-    # 2x Downsampling Test to fit array in L3 cache
-    env.ct_volume = np.ascontiguousarray(env.ct_volume[::2, ::2, ::2], dtype=np.float32)
-    env.label_volume = np.ascontiguousarray(env.label_volume[::2, ::2, ::2], dtype=np.float32)
-    env.spacing = env.spacing * 2.0
-    env.reg_meta['inv_affine'][:3, :] = env.reg_meta['inv_affine'][:3, :] * 0.5
-    env.volume_center = env.volume_center / 2.0
+    import torch
+    is_torch = isinstance(env.ct_volume, torch.Tensor)
     
     print("-" * 50)
     print("VOLUME PROPERTIES:")
     print(f"  CT shape:      {env.ct_volume.shape}")
     print(f"  CT dtype:      {env.ct_volume.dtype}")
-    print(f"  CT strides:    {env.ct_volume.strides}")
-    print(f"  CT C_CONTIG:   {env.ct_volume.flags['C_CONTIGUOUS']}")
+    if is_torch:
+        print(f"  CT device:     {env.ct_volume.device}")
+        print(f"  CT strides:    {env.ct_volume.stride()}")
+        print(f"  CT contiguous: {env.ct_volume.is_contiguous()}")
+    else:
+        print(f"  CT strides:    {env.ct_volume.strides}")
+        print(f"  CT contiguous: {env.ct_volume.flags['C_CONTIGUOUS']}")
+        
     print(f"  Label shape:   {env.label_volume.shape}")
     print(f"  Label dtype:   {env.label_volume.dtype}")
-    print(f"  Label strides: {env.label_volume.strides}")
-    print(f"  Label C_CONTIG:{env.label_volume.flags['C_CONTIGUOUS']}")
+    if is_torch:
+        print(f"  Label device:  {env.label_volume.device}")
+        print(f"  Label strides: {env.label_volume.stride()}")
+        print(f"  Label contiguous:{env.label_volume.is_contiguous()}")
+    else:
+        print(f"  Label strides: {env.label_volume.strides}")
+        print(f"  Label contiguous:{env.label_volume.flags['C_CONTIGUOUS']}")
     print("-" * 50)
     
 
