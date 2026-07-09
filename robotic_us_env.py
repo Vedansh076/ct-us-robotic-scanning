@@ -156,6 +156,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
         
         # Load CT Volume & Label Volume
         self.ct_volume, self.label_volume, self.spacing, self.volume_center = load_ct_subject(self.subject_dir)
+        self.ct_volume = np.ascontiguousarray(self.ct_volume, dtype=np.float32)
+        self.label_volume = np.ascontiguousarray(self.label_volume, dtype=np.float32)
         
         # Load U-Net Model (sigmoid)
         if not self.skip_unet:
