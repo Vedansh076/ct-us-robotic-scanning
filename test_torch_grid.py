@@ -76,39 +76,16 @@ def compare_interpolation():
     torch_out_cpu = torch_out_cpu_t.squeeze().numpy()
     torch_cpu_time = (time.perf_counter() - t0) * 1000
     
-    # 3. PyTorch Grid Sample (Nearest, GPU)
-    if torch.cuda.is_available():
-        vol_gpu = vol_t.cuda()
-        grid_gpu = grid_t.cuda()
-        # Warmup
-        F.grid_sample(vol_gpu, grid_gpu, mode='nearest', padding_mode='zeros', align_corners=True)
-        torch.cuda.synchronize()
-        
-        t0 = time.perf_counter()
-        torch_out_gpu_t = F.grid_sample(
-            vol_gpu, grid_gpu,
-            mode='nearest',
-            padding_mode='zeros',
-            align_corners=True
-        )
-        torch.cuda.synchronize()
-        torch_gpu_time = (time.perf_counter() - t0) * 1000
-        torch_out_gpu = torch_out_gpu_t.squeeze().cpu().numpy()
-    else:
-        torch_gpu_time = None
-        torch_out_gpu = None
+    # 3. PyTorch Grid Sample (Nearest, GPU) - BYPASSED FOR CPU ONLY
+    torch_gpu_time = None
+    torch_out_gpu = None
         
     print(f"SciPy CPU Time  : {scipy_time:.3f} ms")
     print(f"PyTorch CPU Time: {torch_cpu_time:.3f} ms")
-    if torch_gpu_time is not None:
-        print(f"PyTorch GPU Time: {torch_gpu_time:.3f} ms")
         
     # Check max difference
     diff_cpu = np.max(np.abs(scipy_out - torch_out_cpu))
     print(f"Max Diff (SciPy vs PyTorch CPU): {diff_cpu}")
-    if torch_out_gpu is not None:
-        diff_gpu = np.max(np.abs(scipy_out - torch_out_gpu))
-        print(f"Max Diff (SciPy vs PyTorch GPU): {diff_gpu}")
 
 if __name__ == "__main__":
     compare_interpolation()
