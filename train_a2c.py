@@ -102,7 +102,8 @@ def main():
             checkpoint_path="model/runs/exp1_2IP/exp1/best_model.pth",
             device="auto",
             render_mode="rgb_array",  # Direct headless mode for training
-            max_episode_steps=200
+            max_episode_steps=200,
+            size=128                  # Downsample image observation to 128x128 for 4x speedup
         )
         return Monitor(env)
 

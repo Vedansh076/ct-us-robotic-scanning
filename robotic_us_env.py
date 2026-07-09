@@ -356,7 +356,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
                 self.label_volume, center=ct_center, quaternion=ee_orn,
                 spacing=self.spacing, size=self.slice_size, pixel_spacing=self.pixel_spacing,
                 inv_affine=self.reg_meta['inv_affine'], mesh_scale=self.mesh_scale,
-                body_orientation_matrix=self.reg_body_orientation_matrix
+                body_orientation_matrix=self.reg_body_orientation_matrix,
+                order=0  # Nearest neighbor for fast label extraction
             )
             
             seg_slice = (seg_slice > 0.5).astype(np.float32)
