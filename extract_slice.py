@@ -142,28 +142,29 @@ def extract_slice(volume,
 
     # Use PyTorch grid_sample path if input is a PyTorch Tensor
     if _TORCH_OK and isinstance(volume, torch.Tensor):
-        # volume shape is (D, H, W)
-        D, H, W = volume.shape[-3:]
-        
-        # Normalize coordinates to [-1, 1]
-        z_norm = (points[..., 0] / (D - 1)) * 2.0 - 1.0
-        y_norm = (points[..., 1] / (H - 1)) * 2.0 - 1.0
-        x_norm = (points[..., 2] / (W - 1)) * 2.0 - 1.0
-        
-        # PyTorch grid_sample expects (x, y, z) coordinates order
-        grid = np.stack([x_norm, y_norm, z_norm], axis=-1)
-        grid_t = torch.from_numpy(grid).unsqueeze(0).unsqueeze(0).float().to(volume.device)
-        
-        vol_t = volume.unsqueeze(0).unsqueeze(0)
-        mode = "nearest" if order == 0 else "bilinear"
-        
-        slice_t = F.grid_sample(
-            vol_t, grid_t,
-            mode=mode,
-            padding_mode="zeros",
-            align_corners=True
-        )
-        return slice_t.squeeze().cpu().numpy()
+        with torch.no_grad():
+            # volume shape is (D, H, W)
+            D, H, W = volume.shape[-3:]
+            
+            # Normalize coordinates to [-1, 1]
+            z_norm = (points[..., 0] / (D - 1)) * 2.0 - 1.0
+            y_norm = (points[..., 1] / (H - 1)) * 2.0 - 1.0
+            x_norm = (points[..., 2] / (W - 1)) * 2.0 - 1.0
+            
+            # PyTorch grid_sample expects (x, y, z) coordinates order
+            grid = np.stack([x_norm, y_norm, z_norm], axis=-1)
+            grid_t = torch.from_numpy(grid).unsqueeze(0).unsqueeze(0).float().to(volume.device)
+            
+            vol_t = volume.unsqueeze(0).unsqueeze(0)
+            mode = "nearest" if order == 0 else "bilinear"
+            
+            slice_t = F.grid_sample(
+                vol_t, grid_t,
+                mode=mode,
+                padding_mode="zeros",
+                align_corners=True
+            )
+            return slice_t.squeeze().cpu().numpy()
 
     # ── Fallback path: SciPy map_coordinates (CPU-only, no PyTorch dependence) ──
     sample_coords = [
