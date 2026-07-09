@@ -28,6 +28,10 @@ def profile():
     print(f"  Label C_CONTIG:{env.label_volume.flags['C_CONTIGUOUS']}")
     print("-" * 50)
     
+    # Cast to float64 once to test casting overhead theory
+    env.ct_volume = env.ct_volume.astype(np.float64)
+    env.label_volume = env.label_volume.astype(np.float64)
+    
     times = {
         "action_decode": [],
         "bullet_step": [],
