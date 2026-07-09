@@ -253,7 +253,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
         if found_body:
             # Settle the probe exactly touching the skin surface with 8mm standoff
-            self.home_pos = np.array([tx, ty, surface_z + 0.008 + 0.18], dtype=np.float32)
+            self.home_pos = np.array([tx, ty, surface_z + 0.003 + 0.18], dtype=np.float32)
             # High approach target to prevent side collision
             approach_pos = np.array([tx, ty, surface_z + 0.10 + 0.18], dtype=np.float32)
         else:
@@ -336,7 +336,18 @@ class RoboticUltrasoundGymEnv(gym.Env):
                 hit_distance = probe_tip_pos[2] - surface_z
         
         self._last_hit_distance = hit_distance
-        force_val = compute_probe_contact_force(hit_distance, desired_standoff=0.008, max_force=10.0)
+        # Stiffer spring (k=800 N/m) with 3mm standoff so ideal force (2-6N)
+        # is reached with only 0-5mm of surface compression instead of 20mm+.
+        force_val = compute_probe_contact_force(hit_distance, desired_standoff=0.003, max_force=10.0)
+        # Override with stiffer spring: recompute using k=800 instead of default 200
+        if hit_distance is not None:
+            compression = 0.003 - hit_distance
+            if compression > 0:
+                force_val = min(compression * 800.0, 10.0)
+            else:
+                force_val = 0.0  # Not in contact
+        else:
+            force_val = 0.0
         self.current_force = force_val
         
         # 3. Extract oblique slices and run U-Net inference
@@ -429,8 +440,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.step_counter += 1
         
         # Decode and scale action
-        # Position displacement limits: dx, dy, dz in [-1 cm, 1 cm]
-        delta_pos = action[:3] * 0.01
+        # Position displacement limits: dx, dy, dz in [-5 mm, 5 mm] (fine control)
+        delta_pos = action[:3] * 0.005
         # Orientation displacement limits: droll, dpitch, dyaw in [-3 deg, 3 deg]
         delta_euler = action[3:] * 0.05
         
@@ -500,24 +511,21 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has four additive components:
+        The reward has three additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
-          - F = 0 N : ``−2.0`` (hard penalty, probe lost contact)
+          - F = 0 N : ``−1.0`` (penalty, probe lost contact)
           - 0 < F < 2 N: ``+0.5 × F`` (light contact, partial reward)
-          - 2 ≤ F ≤ 6 N: ``+1.5`` (ideal clinical contact window)
+          - 2 ≤ F ≤ 6 N: ``+2.0`` (ideal clinical contact window)
           - 6 < F ≤ 8 N: ``+0.5`` (acceptable but not ideal)
-          - F > 8 N: ``−2.0 × (F − 8)²`` (quadratic penalty, patient safety)
+          - F > 8 N: ``−1.0 × (F − 8)`` (linear penalty, patient safety)
 
         **Bone reward** (``R_b``) — encourages scanning over anatomical targets:
           - If the segmentation slice contains >5 bone pixels: ``+1.0``.
           - Otherwise: ``0.0``.
 
         **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
-          - ``−0.1 × ‖action‖²``  (always applied).
-
-        **Penetration penalty** (``R_p``) — discourages embedding into the body:
-          - If hit_distance < -0.005 (probe >5mm below surface): ``−3.0 × |depth|``
+          - ``−0.05 × ‖action‖²``  (always applied).
 
         Parameters
         ----------
@@ -527,19 +535,19 @@ class RoboticUltrasoundGymEnv(gym.Env):
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a + R_p``.
+            Total scalar reward: ``R_f + R_b + R_a``.
         """
         F = self.current_force
         
         # 1. Force Reward: penalizes air gap (F=0) and high forces, rewards [2N, 6N] contact
         if F == 0.0:
-            R_f = -2.0  # Big penalty for losing contact
+            R_f = -1.0  # Penalty for losing contact
         elif F > 8.0:
-            R_f = -2.0 * (F - 8.0) ** 2  # Quadratic penalty for pressing too hard
+            R_f = -1.0 * (F - 8.0)  # Linear penalty for pressing too hard
         elif F > 6.0:
             R_f = 0.5   # Acceptable but not ideal
         elif F >= 2.0:
-            R_f = 1.5   # Ideal clinical contact window
+            R_f = 2.0   # Strong reward for ideal clinical contact window
         else:
             # 0 < F < 2
             R_f = 0.5 * F  # Small reward for light contact
@@ -549,18 +557,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
         if self.last_seg_slice is not None and np.sum(self.last_seg_slice) > 5.0:
             R_b = 1.0  # Encourage scanning near bones
             
-        # 3. Action Smoothing Penalty
-        R_a = -0.1 * np.sum(np.square(action))
+        # 3. Action Smoothing Penalty (reduced to avoid dominating reward signal)
+        R_a = -0.05 * np.sum(np.square(action))
         
-        # 4. Penetration Penalty: penalize probe embedding into the body
-        R_p = 0.0
-        if hasattr(self, '_last_hit_distance') and self._last_hit_distance is not None:
-            if self._last_hit_distance < -0.005:
-                # Probe is >5mm below the surface (penetrating)
-                depth = abs(self._last_hit_distance)
-                R_p = -3.0 * depth / 0.01  # -3.0 per cm of penetration
-        
-        return R_f + R_b + R_a + R_p
+        return R_f + R_b + R_a
         
     def close(self):
         if p.isConnected(self.client):
