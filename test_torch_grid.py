@@ -64,7 +64,7 @@ def compare_interpolation():
         torch.from_numpy(x_norm),
         torch.from_numpy(y_norm),
         torch.from_numpy(z_norm)
-    ], dim=-1).unsqueeze(0).unsqueeze(0) # (1, 1, size, size, 3)
+    ], dim=-1).unsqueeze(0).unsqueeze(0).float() # (1, 1, size, size, 3) and cast to float32
     
     t0 = time.perf_counter()
     torch_out_cpu_t = F.grid_sample(
