@@ -37,7 +37,8 @@ def profile():
         delta_pos = action[:3] * 0.01
         delta_euler = action[3:] * 0.05
         
-        ee_state = p.getLinkState(env.panda_id, env.PANDA_EE_LINK, computeForwardKinematics=True)
+        from live_unet_demo import PANDA_EE_LINK
+        ee_state = p.getLinkState(env.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
         curr_pos = np.array(ee_state[4])
         curr_orn = np.array(ee_state[5])
         
@@ -64,7 +65,7 @@ def profile():
         times["bullet_step"].append(time.perf_counter() - t0)
         
         t0 = time.perf_counter()
-        ee_state = p.getLinkState(env.panda_id, env.PANDA_EE_LINK, computeForwardKinematics=True)
+        ee_state = p.getLinkState(env.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
         ee_pos = np.array(ee_state[4], dtype=np.float32)
         ee_orn = np.array(ee_state[5], dtype=np.float32)
         times["link_state"].append(time.perf_counter() - t0)
