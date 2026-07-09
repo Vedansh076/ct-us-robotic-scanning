@@ -16,6 +16,18 @@ def profile():
     
     env.reset()
     
+    print("-" * 50)
+    print("VOLUME PROPERTIES:")
+    print(f"  CT shape:      {env.ct_volume.shape}")
+    print(f"  CT dtype:      {env.ct_volume.dtype}")
+    print(f"  CT strides:    {env.ct_volume.strides}")
+    print(f"  CT C_CONTIG:   {env.ct_volume.flags['C_CONTIGUOUS']}")
+    print(f"  Label shape:   {env.label_volume.shape}")
+    print(f"  Label dtype:   {env.label_volume.dtype}")
+    print(f"  Label strides: {env.label_volume.strides}")
+    print(f"  Label C_CONTIG:{env.label_volume.flags['C_CONTIGUOUS']}")
+    print("-" * 50)
+    
     times = {
         "action_decode": [],
         "bullet_step": [],
