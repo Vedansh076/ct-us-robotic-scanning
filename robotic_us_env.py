@@ -335,6 +335,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
             else:
                 hit_distance = probe_tip_pos[2] - surface_z
         
+        self._last_hit_distance = hit_distance
         force_val = compute_probe_contact_force(hit_distance, desired_standoff=0.008, max_force=10.0)
         self.current_force = force_val
         
@@ -474,7 +475,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         truncated = False
         
         # 1. Over-force safety limit (patient safety threshold)
-        if self.current_force > 12.0:
+        if self.current_force > 10.0:
             terminated = True
             
         # 2. No contact limit (30 consecutive steps of F = 0)
@@ -499,20 +500,24 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has three additive components:
+        The reward has four additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
           - F = 0 N : ``−2.0`` (hard penalty, probe lost contact)
           - 0 < F < 2 N: ``+0.5 × F`` (light contact, partial reward)
-          - 2 ≤ F ≤ 8 N: ``+1.0`` (ideal contact window)
-          - F > 8 N: ``−1.0 × (F − 8)`` (excess force, patient safety)
+          - 2 ≤ F ≤ 6 N: ``+1.5`` (ideal clinical contact window)
+          - 6 < F ≤ 8 N: ``+0.5`` (acceptable but not ideal)
+          - F > 8 N: ``−2.0 × (F − 8)²`` (quadratic penalty, patient safety)
 
         **Bone reward** (``R_b``) — encourages scanning over anatomical targets:
-          - If the segmentation slice contains >5 bone pixels: ``+1.5``.
+          - If the segmentation slice contains >5 bone pixels: ``+1.0``.
           - Otherwise: ``0.0``.
 
         **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
           - ``−0.1 × ‖action‖²``  (always applied).
+
+        **Penetration penalty** (``R_p``) — discourages embedding into the body:
+          - If hit_distance < -0.005 (probe >5mm below surface): ``−3.0 × |depth|``
 
         Parameters
         ----------
@@ -522,17 +527,19 @@ class RoboticUltrasoundGymEnv(gym.Env):
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a``.
+            Total scalar reward: ``R_f + R_b + R_a + R_p``.
         """
         F = self.current_force
         
-        # 1. Force Reward: penalizes air gap (F=0) and high forces, rewards [2N, 8N] contact
+        # 1. Force Reward: penalizes air gap (F=0) and high forces, rewards [2N, 6N] contact
         if F == 0.0:
             R_f = -2.0  # Big penalty for losing contact
         elif F > 8.0:
-            R_f = -1.0 * (F - 8.0) # Penalty for pressing too hard
-        elif F >= 2.0 and F <= 8.0:
-            R_f = 1.0  # Reward for good contact
+            R_f = -2.0 * (F - 8.0) ** 2  # Quadratic penalty for pressing too hard
+        elif F > 6.0:
+            R_f = 0.5   # Acceptable but not ideal
+        elif F >= 2.0:
+            R_f = 1.5   # Ideal clinical contact window
         else:
             # 0 < F < 2
             R_f = 0.5 * F  # Small reward for light contact
@@ -540,12 +547,20 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # 2. Bone Tracking Reward: positive bonus if bone is visible
         R_b = 0.0
         if self.last_seg_slice is not None and np.sum(self.last_seg_slice) > 5.0:
-            R_b = 1.5  # Encourage scanning near bones
+            R_b = 1.0  # Encourage scanning near bones
             
         # 3. Action Smoothing Penalty
         R_a = -0.1 * np.sum(np.square(action))
         
-        return R_f + R_b + R_a
+        # 4. Penetration Penalty: penalize probe embedding into the body
+        R_p = 0.0
+        if hasattr(self, '_last_hit_distance') and self._last_hit_distance is not None:
+            if self._last_hit_distance < -0.005:
+                # Probe is >5mm below the surface (penetrating)
+                depth = abs(self._last_hit_distance)
+                R_p = -3.0 * depth / 0.01  # -3.0 per cm of penetration
+        
+        return R_f + R_b + R_a + R_p
         
     def close(self):
         if p.isConnected(self.client):
