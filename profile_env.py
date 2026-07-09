@@ -16,6 +16,13 @@ def profile():
     
     env.reset()
     
+    # 2x Downsampling Test to fit array in L3 cache
+    env.ct_volume = np.ascontiguousarray(env.ct_volume[::2, ::2, ::2], dtype=np.float32)
+    env.label_volume = np.ascontiguousarray(env.label_volume[::2, ::2, ::2], dtype=np.float32)
+    env.spacing = env.spacing * 2.0
+    env.reg_meta['inv_affine'][:3, :] = env.reg_meta['inv_affine'][:3, :] * 0.5
+    env.volume_center = env.volume_center / 2.0
+    
     print("-" * 50)
     print("VOLUME PROPERTIES:")
     print(f"  CT shape:      {env.ct_volume.shape}")
