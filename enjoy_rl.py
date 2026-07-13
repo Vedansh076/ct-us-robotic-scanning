@@ -1,15 +1,17 @@
 """
-enjoy_rl.py — Run a trained A2C agent visually in the PyBullet GUI simulator.
+enjoy_rl.py — Run a trained RL agent visually in the PyBullet GUI simulator.
 =============================================================================
 
-Loads a trained Stable-Baselines3 A2C model checkpoint (.zip) and executes it
-inside the RoboticUltrasoundGymEnv environment in "human" rendering mode.
-This opens the live PyBullet GUI window showing the robot autonomously scanning
-the patient's spine.
+Loads a trained Stable-Baselines3 model checkpoint (.zip) — either A2C or PPO —
+and executes it inside the RoboticUltrasoundGymEnv environment in "human"
+rendering mode. The algorithm is auto-detected from the checkpoint filename
+(e.g. 'a2c_final_model.zip' → A2C, 'ppo_final_model.zip' → PPO).
 
 Usage
 -----
     python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+    python enjoy_rl.py --checkpoint ppo_checkpoints/ppo_final_model.zip
+    python enjoy_rl.py --checkpoint my_model.zip --algo ppo
 """
 
 import os
@@ -22,7 +24,7 @@ import numpy as np
 # Add current directory to path
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
 
-from stable_baselines3 import A2C
+from stable_baselines3 import A2C, PPO
 from robotic_us_env import RoboticUltrasoundGymEnv
 
 def main():
@@ -31,6 +33,7 @@ def main():
     parser.add_argument("--subject", type=str, default="totalseg_patients/s0058", help="Subject patient directory")
     parser.add_argument("--episodes", type=int, default=5, help="Number of episodes to run (default: 5)")
     parser.add_argument("--delay", type=float, default=0.02, help="Delay between steps in seconds for smoother viewing")
+    parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo"], help="Algorithm (auto-detected from filename if not set)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -55,9 +58,18 @@ def main():
         size=128                  # Must match the 128x128 observation size used in training
     )
 
-    # 3. Load the trained A2C agent
-    print("[model] Loading trained A2C policy...")
-    model = A2C.load(args.checkpoint, env=env, device="cpu")
+    # 3. Auto-detect algorithm from checkpoint filename or --algo flag
+    algo_name = args.algo
+    if algo_name is None:
+        cp_lower = os.path.basename(args.checkpoint).lower()
+        if "ppo" in cp_lower:
+            algo_name = "ppo"
+        else:
+            algo_name = "a2c"  # Default to A2C
+    
+    AlgoClass = PPO if algo_name == "ppo" else A2C
+    print(f"[model] Loading trained {algo_name.upper()} policy...")
+    model = AlgoClass.load(args.checkpoint, env=env, device="cpu")
 
     try:
         for ep in range(1, args.episodes + 1):
