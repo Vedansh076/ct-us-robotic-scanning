@@ -277,6 +277,11 @@ class RoboticUltrasoundGymEnv(gym.Env):
             p.stepSimulation()
             
         obs = self._get_obs()
+        
+        # Initialize visited Y range for coverage tracking based on initial settled position
+        self.visited_y_min = float(obs["pose"][1])
+        self.visited_y_max = float(obs["pose"][1])
+        
         info = {}
         return obs, info
         
@@ -511,7 +516,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has three additive components:
+        The reward has four additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
           - F = 0 N : ``−1.0`` (penalty, probe lost contact)
@@ -527,6 +532,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
         **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
           - ``−0.05 × ‖action‖²``  (always applied).
 
+        **Coverage reward** (``R_cov``) — encourages sweeping along the spine (Y-axis):
+          - Rewarded at ``+150.0 × new_span_meters`` only when the probe is in
+            clinical contact and bone is visible.
+
         Note: Probe perpendicularity is enforced mechanically via tight Euler
         angle clamps (±0.15 rad ≈ ±8.6°) in the step function, so no explicit
         orientation penalty is needed in the reward.
@@ -539,7 +548,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a``.
+            Total scalar reward: ``R_f + R_b + R_a + R_cov``.
         """
         F = self.current_force
         
@@ -558,13 +567,36 @@ class RoboticUltrasoundGymEnv(gym.Env):
             
         # 2. Bone Tracking Reward: positive bonus if bone is visible
         R_b = 0.0
+        bone_visible = False
         if self.last_seg_slice is not None and np.sum(self.last_seg_slice) > 5.0:
             R_b = 1.0  # Encourage scanning near bones
+            bone_visible = True
             
         # 3. Action Smoothing Penalty (reduced to avoid dominating reward signal)
         R_a = -0.05 * np.sum(np.square(action))
         
-        return R_f + R_b + R_a
+        # 4. Coverage Expansion Reward
+        R_cov = 0.0
+        # ee_pos is index 0:3 in obs["pose"]
+        ee_state = p.getLinkState(self.panda_id, PANDA_EE_LINK, computeForwardKinematics=False)
+        current_y = ee_state[4][1]
+        
+        if not hasattr(self, "visited_y_min"):
+            self.visited_y_min = current_y
+            self.visited_y_max = current_y
+            
+        # Only reward coverage expansion when probe is in contact and bone is visible
+        if F >= 2.0 and F <= 8.0 and bone_visible:
+            expansion = 0.0
+            if current_y < self.visited_y_min:
+                expansion += (self.visited_y_min - current_y)
+                self.visited_y_min = current_y
+            if current_y > self.visited_y_max:
+                expansion += (current_y - self.visited_y_max)
+                self.visited_y_max = current_y
+            R_cov = expansion * 150.0  # +1.5 points per cm of new span covered
+        
+        return R_f + R_b + R_a + R_cov
         
     def close(self):
         if p.isConnected(self.client):
