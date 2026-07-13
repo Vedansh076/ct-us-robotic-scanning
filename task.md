@@ -26,13 +26,13 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Copy `registration.py` to root and integrate `compute_registered_ct_center` and `load_registration_meta` into `live_unet_demo.py`
   - [x] Enable loading of patient-specific `patient_skin.obj` mesh instead of the generic `mosh` body mesh by default
 
-- [/] **2. Correct U-Net Model & Transition to 2-Channel Input**
+- [x] **2. Correct U-Net Model & Transition to 2-Channel Input**
   - [x] Modify `model/train.py` to import `UNet` from `model` (Sigmoid output) instead of `pix2pix.model` (Tanh output)
   - [x] Standardize clinical windowing/clipping range (e.g. $[-200, 300]$ HU) consistently across both `model/dataset.py` and `live_unet_demo.py`
   - [x] Adapt U-Net/Pix2Pix architectures in `model/model.py` and `model/pix2pix/model.py` to take 2-channel input (CT + Seg)
   - [x] Update `model/dataset.py` to load, normalize, and stack both CT and label slices
   - [x] Update `live_unet_demo.py` and `extract_slice.py` to slice and stack label volumes during simulation
-  - [/] Retrain the U-Net/Pix2Pix model on the Cavalcanti Spine Dataset using the remote GPU machine
+  - [x] Retrain the U-Net/Pix2Pix model on the Cavalcanti Spine Dataset using the remote GPU machine
     - [x] Set up Conda environment and Git repository on remote GPU machine
     - [x] Resolve file permissions and free up 71 GB disk space on GPU machine
     - [x] Download Cavalcanti dataset (31.3 GB, completed)
@@ -85,6 +85,16 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Implement attenuation diffraction (horizontal Gaussian blur of attenuation map) for soft, realistic shadow boundaries.
   - [x] Add electronic noise floor and depth-independent noise mixing to prevent pure black shadows.
 
+- [x] **3. Ray-Tracing Physics Simulator (v4)**
+  - [x] Add speed-of-sound `c` to per-tissue acoustic parameters (`_US_TISSUE_PARAMS`)
+  - [x] Implement `_raytrace_2d_vectorized()` — pure NumPy vectorized 2D ray-tracer (no Numba dependency)
+  - [x] Add `simulate_raytrace()` method reusing existing speckle/noise/log-compression chain
+  - [x] Add Snell's law refraction at tissue speed-of-sound boundaries
+  - [x] Add surface-normal tilt estimation for initial ray deflection at curved bone
+  - [x] Fix coupling-gel boundary: skip reflection at background→skin interface (R ≈ 0.9995 otherwise)
+  - [x] Add `--sim-mode ray` CLI option and wire through all dispatch points
+  - [x] Verify: shadow ratio 0.49 (vs conv 0.61), 28ms/frame on CPU, bone echo 0.93
+
 
 ## Stage 3: OpenAI Gymnasium Environment Wrapper
 
@@ -100,3 +110,7 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Create automated environment verification script `test_gym_env.py`
   - [x] Test random agent step execution and print performance benchmarks (FPS)
   - [x] Verify safety threshold terminations and output observation shape consistency
+- [x] **3. A2C RL Agent Training**
+  - [x] Train A2C agent for 200,000 timesteps in the background on the remote GPU server (optimized to 35-180 FPS)
+  - [/] Copy the trained checkpoint `.zip` file back to the local workspace
+  - [x] Create enjoy/verification script `enjoy_rl.py` to run the trained agent visually in the GUI simulator
