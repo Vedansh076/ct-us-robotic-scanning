@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 2 — Cavalcanti Robotic Spine Dataset preprocessing is now **successfully completed** for all 7 volunteers. Registration alignments have been visually verified (via `plot_middle_check.py`) showing high-quality, 100% in-bounds CT slices, bone masks, and matching US frames. Next: Run `train.py` and `train_pix2pix.py` on the remote GPU machine to retrain the 2-channel models on the preprocessed dataset, then copy the trained checkpoints back to the local workspace.
+* **Current Focus:** Stage 3 — Autonomous Robotic Ultrasound RL Training is **successfully completed**. The A2C RL agent has been trained for 150,000 steps with perpendicular orientation constraints (±8.6°), stiffer spring contact physics (800 N/m), and a dense longitudinal sweep motion reward. The trained agent model (`a2c_final_model.zip`) has been evaluated locally via `enjoy_rl.py`, achieving high average episode rewards (+191.7 to +264.1) with stable 3.3–3.98 N contact force and full spine coverage across all 200-step episodes.
 
 ---
 
@@ -39,10 +39,15 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Consequence:** The original speckle model used thresholded Gaussian noise (`S_map[T1 > mu1] = 0.0` with `mu1=0.20`), which zeroed out ~42% of pixels, creating a coarse salt-and-pepper dot pattern instead of smooth clinical-grade B-mode texture. Additionally, PSF_B was too small (2×2 sigma, 11×11 kernel) to produce realistic speckle grain size, the dynamic range was too harsh (50 dB), and there was no lateral coherence blur.
 * **Resolution:** Replaced with Rayleigh-distributed speckle `sqrt(re² + im²)` where `re,im ~ N(0,1)` — the correct physics model for ultrasound backscatter envelopes. This produces always-positive values (no zero-holes) with smooth granular texture. Also: enlarged PSF_B to 3.5×3.5 sigma on 15×15 kernel, reduced DR to 38 dB (clinical MSK setting), added lateral coherence blur (σ=1.8 px, horizontal-only) to mimic beam-width limited resolution, and calibrated tissue mu0 (0.055 soft / 0.035 fat / 0.070 skin) for proper bone-tissue-shadow brightness separation.
 
-### Bug 7: Evaluation Subject Directory Scanning Mismatch [RESOLVED]
-* **Code Location:** `live_unet_demo.py` under the `--eval` mode branch (line 1025).
-* **Consequence:** The script only searched for directories containing a file named exactly `CT.nii`. Since the new TotalSegmentator patient data format stores scans as lowercase `ct.nii.gz` (and possibly other variants supported by `load_ct_subject()`), the script failed to locate any subjects in the evaluation directory and exited with "No subjects found".
-* **Resolution:** Replaced the check with an `any()` check over the full list of supported NIfTI filenames: `["CT.nii", "CT.nii.gz", "ct.nii.gz", "ct.nii"]`. The evaluation script now successfully identifies and runs inference on all 5 patient subjects.
+### Bug 8: Soft Contact Spring vs Penetration Penalty Mismatch [RESOLVED]
+* **Code Location:** `robotic_us_env.py` (`_compute_reward` and force calculation).
+* **Consequence:** The initial force model used a soft virtual spring (`k=200 N/m`, standoff=8mm). Reaching the ideal 2–6N force window required compressing 2–22mm into the torso mesh. However, the reward function penalized any depth below 5mm, creating a lose-lose contradiction that caused the agent to embed deep into the body to harvest bone rewards.
+* **Resolution:** Increased spring constant to `k=800 N/m` (3mm standoff) so ideal 2–6N contact is achieved at surface level (0–5mm penetration). Tightened orientation clamps to ±0.15 rad (±8.6°) to keep the probe strictly upright/perpendicular to the skin.
+
+### Bug 9: Sparse Span Reward vs Dense Sweep Motion Reward [RESOLVED]
+* **Code Location:** `robotic_us_env.py` (`_compute_reward`).
+* **Consequence:** A one-time reward spike for expanding min/max visited Y span broke A2C value estimation (`explained_variance` dropped to ~0) and caused low-reward oscillations.
+* **Resolution:** Replaced sparse span rewards with a dense longitudinal sweep reward (`R_sweep = 0.5 * |action_y|` when in 2–8N contact over bone), added inter-step action jerk penalty `R_jerk = -0.1 * ||action - last_action||²`, and randomized initial Y start positions (`±8 cm`) with a raycast fallback to ensure 100% valid skin contact at episode reset.
 
 ### Bug 8: PCA Rotation Candidate Centering Offset [RESOLVED]
 * **Code Location:** `model/prepare_cavalcanti.py` in 90-degree PCA candidate pre-alignment.
