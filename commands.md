@@ -1,0 +1,139 @@
+# Execution & Model Command Reference
+
+> **NOTICE FOR ALL ASSISTANT AGENTS:**
+> This file is a central reference of all execution, training, and evaluation commands for the CT-to-Ultrasound Robotic Scanning project. **EVERY assistant agent working in this workspace MUST maintain and update this file whenever new scripts, trained models, CLI arguments, or execution workflows are added or modified.**
+
+---
+
+## 1. Autonomous Reinforcement Learning (RL) Scanning Agent
+
+### A. Evaluate / Visualize Trained Agent in GUI Simulator (`enjoy_rl.py`)
+Runs a trained Stable-Baselines3 model (.zip) in the live interactive PyBullet GUI simulator. Supports auto-detection for A2C, PPO, and SAC checkpoints.
+
+```powershell
+# Run final trained A2C scanning agent (Default/Recommended)
+python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+
+# Run specific step checkpoint (e.g. 30k steps)
+python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_model_30000_steps.zip
+
+# Run trained PPO or SAC model (auto-detected from filename)
+python enjoy_rl.py --checkpoint ppo_checkpoints/ppo_final_model.zip
+python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip
+```
+
+### B. Train A2C Agent (`train_a2c.py`)
+Trains an Advantage Actor-Critic (A2C) agent with 800 N/m contact physics, ±8.6° perpendicularity constraints, and dense longitudinal sweep rewards.
+
+```bash
+# Recommended server training command (pinned to dedicated CPU cores)
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+git pull origin main
+nohup taskset -c 0,1,2,3 python3 train_a2c.py --timesteps 150000 --save-freq 30000 > train_a2c_v8.log 2>&1 &
+```
+
+### C. Train PPO Agent (`train_ppo.py`)
+Trains a Proximal Policy Optimization (PPO) continuous control benchmark agent.
+
+```bash
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+nohup taskset -c 0,1,2,3 python3 train_ppo.py --timesteps 100000 --n-steps 2048 --batch-size 64 > train_ppo.log 2>&1 &
+```
+
+### D. Train SAC Agent (`train_sac.py`)
+Trains a Soft Actor-Critic (SAC) off-policy maximum entropy continuous control benchmark agent.
+
+```bash
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+nohup taskset -c 0,1,2,3 python3 train_sac.py --timesteps 100000 --save-freq 20000 > train_sac.log 2>&1 &
+```
+
+---
+
+## 2. Deep Generative Models & Live Simulation (`live_unet_demo.py`)
+
+### A. 2-Channel U-Net Deep Generative Model
+Predicts synthetic B-mode ultrasound images in real-time from stacked CT + bone label slices using the trained 2-channel U-Net.
+
+```powershell
+python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --sim-mode unet
+```
+
+### B. 2-Channel Pix2Pix GAN Generative Model
+Predicts textured ultrasound B-mode scans using the conditional Generative Adversarial Network.
+
+```powershell
+python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --sim-mode pix2pix
+```
+
+### C. Quantitative Model Evaluation (`--eval`)
+Calculates quantitative metrics (SSIM, PSNR, MAE) over patient test subjects.
+
+```powershell
+python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --eval
+```
+
+---
+
+## 3. Physics-Based Ultrasound Simulators (No Neural Network Required)
+
+### A. Model-Based Convolution Simulator (`--sim-mode conv`)
+Runs physics v3 simulator (Rayleigh speckle, CT backscatter, carrier PSF, lateral coherence).
+
+```powershell
+python live_unet_demo.py --sim-mode conv
+```
+
+### B. Model-Based Vectorized Ray-Tracing Simulator (`--sim-mode ray`)
+Runs pure-NumPy 2D ray-tracer with Snell's law refraction at tissue speed-of-sound boundaries.
+
+```powershell
+python live_unet_demo.py --sim-mode ray
+```
+
+---
+
+## 4. Model Training & Data Preprocessing Scripts
+
+### A. Train 2-Channel U-Net Generator (`model/train.py`)
+Trains the 2-channel U-Net on CT and label slice stacks.
+
+```bash
+python model/train.py --data_dir Cavalcanti_processed/ --epochs 50 --batch_size 16 --train_subjects auto
+```
+
+### B. Train Pix2Pix GAN Generator (`model/train_pix2pix.py`)
+Trains the Pix2Pix generator and PatchGAN discriminator.
+
+```bash
+python model/train_pix2pix.py --data_dir Cavalcanti_processed/ --epochs 50 --batch_size 16 --train_subjects auto
+```
+
+### C. Cavalcanti Spine Dataset ICP Registration & 3D Reslicing (`model/prepare_cavalcanti.py`)
+Performs patient mesh registration, PCA bounding box centering, and 3D oblique slice stack generation.
+
+```bash
+# Verify raw dataset discovery
+python model/prepare_cavalcanti.py --data_dir Cavalcanti_dataset/ --discover
+
+# Full preprocessing run
+python model/prepare_cavalcanti.py --data_dir Cavalcanti_dataset/ --output_dir Cavalcanti_processed/
+```
+
+---
+
+## 5. Environment Verification & Diagnostics
+
+### A. Gymnasium Environment Diagnostics (`test_gym_env.py`)
+Tests random action step execution, step rate FPS benchmarking, and observation dictionary shapes.
+
+```powershell
+python test_gym_env.py
+```
+
+### B. Oblique CT Slice Extraction Test (`test_slice.py`)
+Verifies registration-aware 3D reslicing accuracy and PyTorch `grid_sample` execution speed.
+
+```powershell
+python test_slice.py
+```
