@@ -511,7 +511,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has four additive components:
+        The reward has three additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
           - F = 0 N : ``−1.0`` (penalty, probe lost contact)
@@ -527,8 +527,9 @@ class RoboticUltrasoundGymEnv(gym.Env):
         **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
           - ``−0.05 × ‖action‖²``  (always applied).
 
-        **Orientation penalty** (``R_o``) — encourages perpendicularity to skin:
-          - ``−2.0 × (pitch² + yaw²)``  penalizes tilt from vertical.
+        Note: Probe perpendicularity is enforced mechanically via tight Euler
+        angle clamps (±0.15 rad ≈ ±8.6°) in the step function, so no explicit
+        orientation penalty is needed in the reward.
 
         Parameters
         ----------
@@ -538,7 +539,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a + R_o``.
+            Total scalar reward: ``R_f + R_b + R_a``.
         """
         F = self.current_force
         
@@ -563,16 +564,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # 3. Action Smoothing Penalty (reduced to avoid dominating reward signal)
         R_a = -0.05 * np.sum(np.square(action))
         
-        # 4. Orientation Penalty: penalize tilt from perpendicular (straight down)
-        # Ideal orientation: roll=π, pitch=0, yaw=0
-        ee_state = p.getLinkState(self.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
-        ee_orn = ee_state[5]
-        euler = p.getEulerFromQuaternion(ee_orn)
-        pitch_dev = euler[1]          # deviation from 0
-        yaw_dev = euler[2]            # deviation from 0
-        R_o = -2.0 * (pitch_dev**2 + yaw_dev**2)
-        
-        return R_f + R_b + R_a + R_o
+        return R_f + R_b + R_a
         
     def close(self):
         if p.isConnected(self.client):
