@@ -249,12 +249,18 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.no_contact_counter = 0
         
         # Calculate dynamic home position snapped to the patient's skin surface
-        # Randomize Y position along the spine (±15 cm) to train coverage across full torso length
+        # Randomize Y position (±8 cm) along the spine with fallback to ensure 100% valid skin contact
         tx = self.body_center[0]
-        ty = self.body_center[1] + float(self.np_random.uniform(-0.15, 0.15))
-        found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
+        rand_y = float(self.np_random.uniform(-0.08, 0.08))
+        found_body, surface_z = raycast_skin_surface(tx, self.body_center[1] + rand_y, self.body_id)
         if found_body:
-            # Settle the probe exactly touching the skin surface with 8mm standoff
+            ty = self.body_center[1] + rand_y
+        else:
+            ty = self.body_center[1]
+            found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
+            
+        if found_body:
+            # Settle the probe exactly touching the skin surface with 3mm standoff
             self.home_pos = np.array([tx, ty, surface_z + 0.003 + 0.18], dtype=np.float32)
             # High approach target to prevent side collision
             approach_pos = np.array([tx, ty, surface_z + 0.10 + 0.18], dtype=np.float32)
@@ -279,6 +285,11 @@ class RoboticUltrasoundGymEnv(gym.Env):
             p.stepSimulation()
             
         obs = self._get_obs()
+        
+        # Randomize designated sweep direction for this episode: +1.0 (headward) or -1.0 (footward)
+        self.sweep_dir = float(self.np_random.choice([-1.0, 1.0]))
+        self.last_action = np.zeros(6, dtype=np.float32)
+        
         info = {}
         return obs, info
         
@@ -513,7 +524,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has four additive components:
+        The reward has five additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
           - F = 0 N : ``−1.0`` (penalty, probe lost contact)
@@ -526,24 +537,24 @@ class RoboticUltrasoundGymEnv(gym.Env):
           - If the segmentation slice contains >5 bone pixels: ``+1.0``.
           - Otherwise: ``0.0``.
 
-        **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
+        **Smoothness penalty** (``R_a``) — discourages large actions:
           - ``−0.05 × ‖action‖²``  (always applied).
 
-        **Sweep motion reward** (``R_sweep``) — encourages longitudinal movement along the spine:
-          - ``+0.5 × |action_y|`` active ONLY when probe is in valid contact (2–8 N) AND over bone.
+        **Action Jerk penalty** (``R_jerk``) — discourages high-frequency oscillation/flipping:
+          - ``−0.1 × ‖action - last_action‖²``
 
-        Note: Probe perpendicularity is enforced mechanically via tight Euler
-        angle clamps (±0.15 rad ≈ ±8.6°) in the step function.
+        **Directional Sweep reward** (``R_sweep``) — encourages unidirectional movement along the spine:
+          - ``+0.5 × action_y × sweep_dir`` active ONLY when probe is in valid contact (2–8 N) AND over bone.
 
         Parameters
         ----------
         action : (6,) float32
-            The action taken this step (used for the smoothness penalty).
+            The action taken this step.
 
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a + R_sweep``.
+            Total scalar reward: ``R_f + R_b + R_a + R_jerk + R_sweep``.
         """
         F = self.current_force
         
@@ -567,15 +578,24 @@ class RoboticUltrasoundGymEnv(gym.Env):
             R_b = 1.0  # Encourage scanning near bones
             bone_visible = True
             
-        # 3. Action Smoothing Penalty
+        # 3. Action Magnitude Penalty
         R_a = -0.05 * np.sum(np.square(action))
         
-        # 4. Dense Sweep Motion Reward along spine (action[1] is dy)
+        # 4. Action Jerk Penalty (prevents high-frequency direction flipping/vibration)
+        if hasattr(self, "last_action") and self.last_action is not None:
+            R_jerk = -0.1 * np.sum(np.square(action - self.last_action))
+        else:
+            R_jerk = 0.0
+        self.last_action = action.copy()
+        
+        # 5. Directional Sweep Motion Reward along spine (action[1] is dy)
         R_sweep = 0.0
         if F >= 2.0 and F <= 8.0 and bone_visible:
-            R_sweep = 0.5 * abs(float(action[1]))  # Reward active longitudinal sweeping
+            sweep_dir = getattr(self, "sweep_dir", 1.0)
+            # Reward moving in designated direction, punish reversing
+            R_sweep = 0.5 * (float(action[1]) * sweep_dir)
         
-        return R_f + R_b + R_a + R_sweep
+        return R_f + R_b + R_a + R_jerk + R_sweep
         
     def close(self):
         if p.isConnected(self.client):
