@@ -453,11 +453,11 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # Convert orientation to euler, add delta, convert back
         curr_euler = np.array(p.getEulerFromQuaternion(curr_orn.tolist()))
         target_euler = curr_euler + delta_euler
-        # Clamp euler orientation to prevent flip-overs
-        # Keep pitch within [-np.pi/4, np.pi/4] and roll within [np.pi - np.pi/4, np.pi + np.pi/4]
-        target_euler[0] = np.clip(target_euler[0], np.pi - 0.4, np.pi + 0.4) # roll (facing down is pi)
-        target_euler[1] = np.clip(target_euler[1], -0.4, 0.4)                # pitch
-        target_euler[2] = np.clip(target_euler[2], -0.6, 0.6)                # yaw
+        # Clamp euler orientation to keep probe nearly perpendicular to skin
+        # Tight clamps (±0.15 rad ≈ ±8.6°) ensure probe stays upright
+        target_euler[0] = np.clip(target_euler[0], np.pi - 0.15, np.pi + 0.15) # roll (facing down is pi)
+        target_euler[1] = np.clip(target_euler[1], -0.15, 0.15)                # pitch
+        target_euler[2] = np.clip(target_euler[2], -0.15, 0.15)                # yaw
         
         target_pos = curr_pos + delta_pos
         
@@ -511,7 +511,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
     def _compute_reward(self, action):
         """Compute the scalar reward for the current step.
 
-        The reward has three additive components:
+        The reward has four additive components:
 
         **Force reward** (``R_f``) — encourages clinically appropriate contact:
           - F = 0 N : ``−1.0`` (penalty, probe lost contact)
@@ -527,6 +527,9 @@ class RoboticUltrasoundGymEnv(gym.Env):
         **Smoothness penalty** (``R_a``) — discourages jerk and oscillation:
           - ``−0.05 × ‖action‖²``  (always applied).
 
+        **Orientation penalty** (``R_o``) — encourages perpendicularity to skin:
+          - ``−2.0 × (pitch² + yaw²)``  penalizes tilt from vertical.
+
         Parameters
         ----------
         action : (6,) float32
@@ -535,7 +538,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         Returns
         -------
         reward : float
-            Total scalar reward: ``R_f + R_b + R_a``.
+            Total scalar reward: ``R_f + R_b + R_a + R_o``.
         """
         F = self.current_force
         
@@ -560,7 +563,16 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # 3. Action Smoothing Penalty (reduced to avoid dominating reward signal)
         R_a = -0.05 * np.sum(np.square(action))
         
-        return R_f + R_b + R_a
+        # 4. Orientation Penalty: penalize tilt from perpendicular (straight down)
+        # Ideal orientation: roll=π, pitch=0, yaw=0
+        ee_state = p.getLinkState(self.panda_id, PANDA_EE_LINK, computeForwardKinematics=True)
+        ee_orn = ee_state[5]
+        euler = p.getEulerFromQuaternion(ee_orn)
+        pitch_dev = euler[1]          # deviation from 0
+        yaw_dev = euler[2]            # deviation from 0
+        R_o = -2.0 * (pitch_dev**2 + yaw_dev**2)
+        
+        return R_f + R_b + R_a + R_o
         
     def close(self):
         if p.isConnected(self.client):
