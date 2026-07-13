@@ -63,7 +63,7 @@ python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --
 Predicts textured ultrasound B-mode scans using the conditional Generative Adversarial Network.
 
 ```powershell
-python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --sim-mode pix2pix
+python live_unet_demo.py --checkpoint model/runs/exp_pix2pix/best_model.pth --sim-mode pix2pix
 ```
 
 ### C. Quantitative Model Evaluation (`--eval`)
