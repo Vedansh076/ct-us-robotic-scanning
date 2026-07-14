@@ -44,14 +44,15 @@ except Exception:
 def flatten_trajectories(trajectories):
     """Convert expert trajectories containing Dict observations into flat Box format.
     """
-    from imitation.data.types import Trajectory
+    from imitation.data.types import Trajectory, maybe_unwrap_dictobs
     flat_trajectories = []
     
     for traj in trajectories:
-        # traj.obs is a DictObs object containing batched numpy arrays
-        images = np.asarray(traj.obs["image"])  # (T+1, 128, 128)
-        forces = np.asarray(traj.obs["force"])  # (T+1, 1)
-        poses = np.asarray(traj.obs["pose"])    # (T+1, 7)
+        # Unwrap DictObs object to a standard dict of numpy arrays
+        obs_dict = maybe_unwrap_dictobs(traj.obs)
+        images = np.asarray(obs_dict["image"])  # (T+1, 128, 128)
+        forces = np.asarray(obs_dict["force"])  # (T+1, 1)
+        poses = np.asarray(obs_dict["pose"])    # (T+1, 7)
         
         # Flatten images to (T+1, 16384) and scale to [0, 1]
         images_flat = images.reshape(len(images), -1).astype(np.float32) / 255.0
