@@ -896,7 +896,7 @@ def create_registered_body_mesh(subject_dir: Path, bed_top_z: float, mesh_scale:
 
 def create_panda_robot() -> int:
     panda_id = p.loadURDF("franka_panda/panda.urdf",
-                          basePosition=[-0.42, 0.0, 0.50],
+                          basePosition=[-0.42, 0.0, 0.68],
                           baseOrientation=p.getQuaternionFromEuler([0, 0, -np.pi / 2]),
                           useFixedBase=True)
     home = [0.0, -0.45, 0.0, -2.25, 0.0, 1.85, 0.78]
