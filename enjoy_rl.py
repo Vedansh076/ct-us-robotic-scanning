@@ -28,6 +28,18 @@ from stable_baselines3 import A2C, PPO, SAC
 from stable_baselines3.common.policies import BasePolicy
 from robotic_us_env import RoboticUltrasoundGymEnv
 
+# Register Gymnasium spaces for safe unpickling in PyTorch 2.6+
+try:
+    import torch
+    import gymnasium
+    torch.serialization.add_safe_globals([
+        gymnasium.spaces.dict.Dict,
+        gymnasium.spaces.box.Box,
+        gymnasium.spaces.discrete.Discrete
+    ])
+except Exception:
+    pass
+
 def main():
     parser = argparse.ArgumentParser(description="Evaluate a trained A2C agent visually in PyBullet")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to the trained SB3 model .zip file")
