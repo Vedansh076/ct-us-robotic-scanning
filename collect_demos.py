@@ -276,18 +276,6 @@ def replay_and_save(
         sweep_name=sweep_name,
     )
 
-    # Save reversed trajectory as .npz (Data Augmentation for Bidirectional Scanning)
-    out_path_rev = output_dir / f"trajectory_{traj_index:04d}_{sweep_name}_rev.npz"
-    np.savez_compressed(
-        out_path_rev,
-        obs_image=np.array(obs_images[::-1], dtype=np.uint8),
-        obs_force=np.array(obs_forces[::-1], dtype=np.float32),
-        obs_pose=np.array(obs_poses[::-1], dtype=np.float32),
-        actions=-np.array(actions_taken[::-1], dtype=np.float32),
-        terminal=True,
-        sweep_name=sweep_name + "_rev",
-    )
-
     stats = {
         "sweep": sweep_name,
         "steps": n_steps,
