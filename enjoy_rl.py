@@ -127,7 +127,8 @@ def main():
                 
                 # Print status
                 force = obs["force"][0]
-                print(f"  Step {step_count:3d} | Force: {force:4.2f} N | Reward: {reward:6.2f} | Acc Reward: {episode_reward:7.2f}", end="\r")
+                pose = obs["pose"]
+                print(f"  Step {step_count:3d} | Force: {force:4.2f} N | EE X: {pose[0]:.4f} | Y: {pose[1]:.4f} | Z: {pose[2]:.4f} | Action Y: {action[1]:.4f} Z: {action[2]:.4f}")
                 
                 # Small delay to make the simulation human-viewable
                 time.sleep(args.delay)
