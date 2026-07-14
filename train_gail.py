@@ -115,6 +115,8 @@ def main():
     venv = DummyVecEnv([make_env])
 
     # 3. Setup custom PPO policy with CustomFlatFeatureExtractor
+    from stable_baselines3.common.policies import ActorCriticPolicy
+
     print("\n[model] Initializing PPO Generator and Custom Discriminator...")
     policy_kwargs = dict(
         features_extractor_class=CustomFlatFeatureExtractor,
@@ -122,7 +124,7 @@ def main():
     )
     
     generator = PPO(
-        policy="ActorCriticPolicy",
+        policy=ActorCriticPolicy,
         env=venv,
         batch_size=args.batch_size,
         learning_rate=args.lr,
