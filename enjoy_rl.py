@@ -25,6 +25,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
 
 from stable_baselines3 import A2C, PPO, SAC
+from stable_baselines3.common.policies import BasePolicy
 from robotic_us_env import RoboticUltrasoundGymEnv
 
 def main():
@@ -33,7 +34,7 @@ def main():
     parser.add_argument("--subject", type=str, default="totalseg_patients/s0058", help="Subject patient directory")
     parser.add_argument("--episodes", type=int, default=5, help="Number of episodes to run (default: 5)")
     parser.add_argument("--delay", type=float, default=0.02, help="Delay between steps in seconds for smoother viewing")
-    parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac"], help="Algorithm (auto-detected from filename if not set)")
+    parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc"], help="Algorithm (auto-detected from filename if not set)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -66,18 +67,26 @@ def main():
             algo_name = "sac"
         elif "ppo" in cp_lower:
             algo_name = "ppo"
+        elif "bc" in cp_lower or "dagger" in cp_lower:
+            algo_name = "bc"
         else:
             algo_name = "a2c"  # Default to A2C
     
-    if algo_name == "sac":
-        AlgoClass = SAC
-    elif algo_name == "ppo":
-        AlgoClass = PPO
+    if algo_name == "bc":
+        # Load BC/DAgger policy (saved as raw SB3 policy, not wrapped in an algorithm)
+        print(f"[model] Loading trained BC/IL policy...")
+        policy = BasePolicy.load(args.checkpoint)
+        model = None  # We'll call policy.predict() directly
     else:
-        AlgoClass = A2C
-
-    print(f"[model] Loading trained {algo_name.upper()} policy...")
-    model = AlgoClass.load(args.checkpoint, env=env, device="cpu")
+        if algo_name == "sac":
+            AlgoClass = SAC
+        elif algo_name == "ppo":
+            AlgoClass = PPO
+        else:
+            AlgoClass = A2C
+        print(f"[model] Loading trained {algo_name.upper()} policy...")
+        model = AlgoClass.load(args.checkpoint, env=env, device="cpu")
+        policy = None
 
     try:
         for ep in range(1, args.episodes + 1):
@@ -89,7 +98,10 @@ def main():
             
             while not done:
                 # Predict the next action deterministically
-                action, _states = model.predict(obs, deterministic=True)
+                if model is not None:
+                    action, _states = model.predict(obs, deterministic=True)
+                else:
+                    action, _states = policy.predict(obs, deterministic=True)
                 
                 # Step the simulator
                 obs, reward, terminated, truncated, info = env.step(action)

@@ -117,3 +117,13 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Copy trained checkpoint `.zip` files back to the local workspace
   - [x] Create enjoy/verification script `enjoy_rl.py` supporting A2C, PPO, and SAC auto-detection
   - [x] Evaluate agents visually in PyBullet GUI: verified stable 3.3–3.98 N contact force, perpendicular orientation constraints (±8.6°), and full longitudinal spine coverage.
+- [/] **4. Imitation Learning from Real Robotic Scanning Poses (Cavalcanti Dataset)**
+  - [x] Create `collect_demos.py` — parse Cavalcanti RUS_pose.txt, auto-detect scanning axis, compute normalised delta-actions, replay through env
+  - [x] Create `train_bc.py` — Behavioral Cloning training with `imitation` library + SB3 MultiInputPolicy
+  - [x] Update `enjoy_rl.py` with `--algo bc` support for evaluating BC/DAgger policies
+  - [x] Update `commands.md` with Section 6: Imitation Learning commands
+  - [ ] Install `imitation` library on remote server (`pip install imitation`)
+  - [ ] Run `collect_demos.py --dry-run` on server to validate Cavalcanti pose parsing
+  - [ ] Run full demo collection on server (`collect_demos.py --output-dir demos/`)
+  - [ ] Train BC policy on server (`train_bc.py --demos-dir demos/ --epochs 50`)
+  - [ ] Download BC checkpoint and evaluate locally

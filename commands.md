@@ -50,6 +50,43 @@ nohup taskset -c 0,1,2,3 python3 train_sac.py --timesteps 100000 --save-freq 200
 
 ---
 
+## 6. Imitation Learning from Cavalcanti Robotic Scanning Poses
+
+### A. Collect Expert Demonstrations (`collect_demos.py`)
+Parses `RUS_pose.txt` files from the Cavalcanti dataset, converts real robotic trajectories into normalised delta-actions, and replays them through the PyBullet env to collect `(observation, action)` pairs.
+
+```bash
+# Dry-run: print statistics without creating the environment
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+python3 collect_demos.py --data-root data/Cavalcanti --dry-run
+
+# Full collection: replay through env and save trajectory .npz files
+nohup python3 collect_demos.py --data-root data/Cavalcanti --output-dir demos/ --stride 15 > collect_demos.log 2>&1 &
+
+# Process specific volunteers only
+python3 collect_demos.py --data-root data/Cavalcanti --output-dir demos/ --stride 15 --volunteers URS01 URS02
+```
+
+### B. Train Behavioral Cloning Policy (`train_bc.py`)
+Trains a supervised BC policy from pre-collected expert demonstrations using the `imitation` library + SB3 MultiInputPolicy.
+
+```bash
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+nohup python3 train_bc.py --demos-dir demos/ --epochs 50 > train_bc.log 2>&1 &
+
+# With custom hyperparameters
+python3 train_bc.py --demos-dir demos/ --epochs 100 --lr 1e-4 --batch-size 128
+```
+
+### C. Evaluate BC Policy (`enjoy_rl.py --algo bc`)
+Runs the trained BC/IL policy in the PyBullet GUI simulator.
+
+```powershell
+python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
+```
+
+---
+
 ## 2. Deep Generative Models & Live Simulation (`live_unet_demo.py`)
 
 ### A. 2-Channel U-Net Deep Generative Model
