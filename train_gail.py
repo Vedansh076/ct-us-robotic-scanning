@@ -145,6 +145,7 @@ def main():
         venv=venv,
         gen_algo=generator,
         reward_net=reward_net,
+        allow_variable_horizon=True,
     )
 
     # 5. Train GAIL
