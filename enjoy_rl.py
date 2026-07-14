@@ -46,7 +46,7 @@ def main():
     parser.add_argument("--subject", type=str, default="totalseg_patients/s0058", help="Subject patient directory")
     parser.add_argument("--episodes", type=int, default=5, help="Number of episodes to run (default: 5)")
     parser.add_argument("--delay", type=float, default=0.02, help="Delay between steps in seconds for smoother viewing")
-    parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc"], help="Algorithm (auto-detected from filename if not set)")
+    parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc", "gail"], help="Algorithm (auto-detected from filename if not set)")
     parser.add_argument("--headless", action="store_true", help="Run in headless (rgb_array) mode without opening PyBullet GUI")
     args = parser.parse_args()
 
@@ -82,7 +82,7 @@ def main():
             algo_name = "sac"
         elif "ppo" in cp_lower:
             algo_name = "ppo"
-        elif "bc" in cp_lower or "dagger" in cp_lower:
+        elif "bc" in cp_lower or "dagger" in cp_lower or "gail" in cp_lower:
             algo_name = "bc"
         else:
             algo_name = "a2c"  # Default to A2C
