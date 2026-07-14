@@ -35,26 +35,29 @@ def main():
     parser.add_argument("--episodes", type=int, default=5, help="Number of episodes to run (default: 5)")
     parser.add_argument("--delay", type=float, default=0.02, help="Delay between steps in seconds for smoother viewing")
     parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc"], help="Algorithm (auto-detected from filename if not set)")
+    parser.add_argument("--headless", action="store_true", help="Run in headless (rgb_array) mode without opening PyBullet GUI")
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  Evaluating Trained A2C Agent Visually in PyBullet")
+    print("  Evaluating Trained Agent")
     print("=" * 60)
     print(f"  Checkpoint: {args.checkpoint}")
     print(f"  Subject:    {args.subject}")
     print(f"  Episodes:   {args.episodes}")
+    print(f"  Headless:   {args.headless}")
     print("=" * 60)
 
     # 1. Verify checkpoint exists
     if not os.path.exists(args.checkpoint):
         raise FileNotFoundError(f"Checkpoint file not found: {args.checkpoint}")
 
-    # 2. Instantiate the Gymnasium environment in visual (human) mode
-    print("\n[env] Launching PyBullet GUI simulator...")
+    # 2. Instantiate the Gymnasium environment
+    render_mode = "rgb_array" if args.headless else "human"
+    print(f"\n[env] Launching PyBullet simulator (mode: {render_mode})...")
     env = RoboticUltrasoundGymEnv(
         subject_dir=args.subject,
         device="cpu",             # Run on CPU locally (no heavy GPU needed for demo)
-        render_mode="human",      # Render the visual PyBullet window!
+        render_mode=render_mode,  # Set based on headless flag
         max_episode_steps=200,
         size=128                  # Must match the 128x128 observation size used in training
     )
@@ -73,9 +76,10 @@ def main():
             algo_name = "a2c"  # Default to A2C
     
     if algo_name == "bc":
-        # Load BC/DAgger policy (saved as raw SB3 policy, not wrapped in an algorithm)
+        # Load BC/DAgger policy (saved as SB3 ActorCriticPolicy by imitation library)
         print(f"[model] Loading trained BC/IL policy...")
-        policy = BasePolicy.load(args.checkpoint)
+        from stable_baselines3.common.policies import MultiInputActorCriticPolicy
+        policy = MultiInputActorCriticPolicy.load(args.checkpoint, device="cpu")
         model = None  # We'll call policy.predict() directly
     else:
         if algo_name == "sac":
