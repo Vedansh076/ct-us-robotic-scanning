@@ -232,12 +232,29 @@ def replay_and_save(
     actions_taken = []
     total_reward = 0.0
 
+    target_force = 4.0
+    Kp = 0.15  # Proportional gain for force error correction
+    current_force = obs["force"][0]
+
     for step_i, action in enumerate(expert_actions):
-        obs, reward, terminated, truncated, info = env.step(action)
+        # Create a copy of the action to adjust
+        adjusted_action = action.copy()
+        
+        # Calculate force error (target - current)
+        force_error = target_force - current_force
+        
+        # If force is too low (error > 0), we want to push down (negative Z action).
+        # If force is too high (error < 0), we want to lift up (positive Z action).
+        # We apply this adjustment to action[2] (Z) and clip to [-1.0, 1.0].
+        adjusted_action[2] = np.clip(action[2] - Kp * force_error, -1.0, 1.0)
+        
+        obs, reward, terminated, truncated, info = env.step(adjusted_action)
+        current_force = obs["force"][0]
+        
         obs_images.append(obs["image"])
         obs_forces.append(obs["force"])
         obs_poses.append(obs["pose"])
-        actions_taken.append(action)
+        actions_taken.append(adjusted_action)
         total_reward += reward
 
         if terminated or truncated:
