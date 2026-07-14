@@ -28,14 +28,17 @@ from stable_baselines3 import A2C, PPO, SAC
 from stable_baselines3.common.policies import BasePolicy
 from robotic_us_env import RoboticUltrasoundGymEnv
 
-# Register Gymnasium spaces for safe unpickling in PyTorch 2.6+
+# Register Gymnasium spaces and NumPy classes for safe unpickling in PyTorch 2.6+
 try:
     import torch
     import gymnasium
+    import numpy as np
     torch.serialization.add_safe_globals([
         gymnasium.spaces.dict.Dict,
         gymnasium.spaces.box.Box,
-        gymnasium.spaces.discrete.Discrete
+        gymnasium.spaces.discrete.Discrete,
+        np.dtype,
+        np.core.multiarray.scalar
     ])
 except Exception:
     pass
