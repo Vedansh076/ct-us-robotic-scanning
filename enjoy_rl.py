@@ -85,13 +85,24 @@ def main():
             algo_name = "sac"
         elif "ppo" in cp_lower:
             algo_name = "ppo"
-        elif "bc" in cp_lower or "dagger" in cp_lower or "gail" in cp_lower:
+        elif "gail" in cp_lower:
+            algo_name = "gail"
+        elif "bc" in cp_lower or "dagger" in cp_lower:
             algo_name = "bc"
         else:
             algo_name = "a2c"  # Default to A2C
     
-    if algo_name == "bc":
-        # Load BC/DAgger policy (saved as SB3 ActorCriticPolicy by imitation library)
+    if algo_name == "gail":
+        # Wrap environment to output flat observations
+        from gail_wrapper import FlattenMultiInputWrapper
+        env = FlattenMultiInputWrapper(env)
+        
+        print(f"[model] Loading trained GAIL generator policy...")
+        from stable_baselines3.common.policies import ActorCriticPolicy
+        policy = ActorCriticPolicy.load(args.checkpoint, device="cpu")
+        model = None
+    elif algo_name == "bc":
+        # Load BC/IL policy (saved as raw SB3 policy, not wrapped in an algorithm)
         print(f"[model] Loading trained BC/IL policy...")
         from stable_baselines3.common.policies import MultiInputActorCriticPolicy
         policy = MultiInputActorCriticPolicy.load(args.checkpoint, device="cpu")
@@ -129,8 +140,11 @@ def main():
                 done = terminated or truncated
                 
                 # Print status
-                force = obs["force"][0]
-                pose = obs["pose"]
+                import pybullet as p
+                from live_unet_demo import PANDA_EE_LINK
+                force = env.unwrapped.current_force
+                ee_state = p.getLinkState(env.unwrapped.panda_id, PANDA_EE_LINK)
+                pose = ee_state[4]
                 print(f"  Step {step_count:3d} | Force: {force:4.2f} N | EE X: {pose[0]:.4f} | Y: {pose[1]:.4f} | Z: {pose[2]:.4f} | Action Y: {action[1]:.4f} Z: {action[2]:.4f}")
                 
                 # Small delay to make the simulation human-viewable

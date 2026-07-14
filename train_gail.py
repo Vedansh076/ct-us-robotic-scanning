@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """
-train_gail.py — Train a GAIL (Generative Adversarial Imitation Learning) policy.
+train_gail.py — Train a GAIL policy using a custom flattened observation wrapper.
 =============================================================================
-
-Loads pre-collected expert trajectories and trains a GAIL discriminator alongside
-an SB3 PPO generator policy to mimic the expert's spine-sweeping behavior.
 """
 
 import argparse
@@ -28,6 +25,7 @@ from stable_baselines3.common.monitor import Monitor
 
 from robotic_us_env import RoboticUltrasoundGymEnv
 from train_bc import load_demonstrations
+from gail_wrapper import FlattenMultiInputWrapper, CustomFlatFeatureExtractor, FlatRewardNet
 
 # Register Gymnasium spaces and NumPy classes for safe unpickling in PyTorch 2.6+
 try:
@@ -43,69 +41,30 @@ except Exception:
     pass
 
 
-class MultiInputRewardNet(nn.Module):
-    """Custom Multi-Input Reward Network (Discriminator) for GAIL.
-
-    Processes Dict observation spaces containing images (CNN) and vectors (MLP),
-    combined with the continuous action, to predict a scalar reward.
+def flatten_trajectories(trajectories):
+    """Convert expert trajectories containing Dict observations into flat Box format.
     """
-    def __init__(self, observation_space, action_space):
-        super().__init__()
-        self.observation_space = observation_space
-        self.action_space = action_space
-
-        # 1. CNN for the image observation (input: 1x128x128)
-        self.cnn = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=8, stride=4),   # 16x31x31
-            nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=4, stride=2),  # 32x14x14
-            nn.ReLU(),
-            nn.Conv2d(32, 32, kernel_size=3, stride=1),  # 32x12x12
-            nn.ReLU(),
-            nn.Flatten(),
+    from imitation.data.types import Trajectory
+    flat_trajectories = []
+    
+    for traj in trajectories:
+        flat_obs = []
+        for obs in traj.obs:
+            image_flat = obs["image"].flatten().astype(np.float32) / 255.0
+            force = obs["force"].astype(np.float32)
+            pose = obs["pose"].astype(np.float32)
+            flat_obs.append(np.concatenate([image_flat, force, pose]))
+            
+        flat_traj = Trajectory(
+            obs=flat_obs,
+            acts=traj.acts,
+            infos=traj.infos,
+            terminal=traj.terminal,
         )
-        cnn_out_dim = 4608
-
-        # 2. MLP for force (1-dim) and pose (7-dim)
-        self.vector_mlp = nn.Sequential(
-            nn.Linear(1 + 7, 32),
-            nn.ReLU(),
-        )
-
-        # 3. Action processor (6-dim)
-        self.action_mlp = nn.Sequential(
-            nn.Linear(6, 32),
-            nn.ReLU(),
-        )
-
-        # 4. Reward head to predict scalar reward
-        total_features = cnn_out_dim + 32 + 32
-        self.reward_head = nn.Sequential(
-            nn.Linear(total_features, 64),
-            nn.ReLU(),
-            nn.Linear(64, 1)
-        )
-
-    def forward(self, state, action, next_state, done) -> th.Tensor:
-        # Scale and format image
-        img = state["image"]
-        if img.ndim == 3:
-            img = img.unsqueeze(1)
-        img = img.float() / 255.0
-
-        img_feats = self.cnn(img)
-
-        # Process force and pose
-        vec_in = th.cat([state["force"].float(), state["pose"].float()], dim=1)
-        vec_feats = self.vector_mlp(vec_in)
-
-        # Process action
-        act_feats = self.action_mlp(action.float())
-
-        # Fuse features and output scalar reward
-        combined = th.cat([img_feats, vec_feats, act_feats], dim=1)
-        reward = self.reward_head(combined)
-        return reward.squeeze(-1)
+        flat_trajectories.append(flat_traj)
+        
+    print(f"  [data] Flattened {len(flat_trajectories)} expert trajectories.")
+    return flat_trajectories
 
 
 def main():
@@ -119,7 +78,7 @@ def main():
     args = parser.parse_args()
 
     print("=" * 60)
-    print("  Generative Adversarial Imitation Learning (GAIL) Training")
+    print("  Generative Adversarial Imitation Learning (GAIL) — Flat Wrapper")
     print("=" * 60)
     print(f"  Demos dir:   {args.demos_dir}")
     print(f"  Timesteps:   {args.timesteps}")
@@ -128,56 +87,53 @@ def main():
     print(f"  Save dir:    {args.save_dir}")
     print("=" * 60)
 
-    # 1. Load expert trajectories
+    # 1. Load and flatten expert trajectories
     print("\n[data] Loading expert demonstrations...")
     trajectories = load_demonstrations(args.demos_dir)
+    flat_trajectories = flatten_trajectories(trajectories)
 
-    # 2. Setup training environments (fast skip_unet mode)
+    # 2. Setup training environments with Flatten Wrapper
     print("\n[env] Creating environments...")
     
     def make_env():
-        env = RoboticUltrasoundGymEnv(
+        raw_env = RoboticUltrasoundGymEnv(
             subject_dir=args.subject,
             device="cpu",
             render_mode="rgb_array",
             max_episode_steps=200,
             size=128,
         )
-        return Monitor(env)
+        # Flatten Dict observations
+        flat_env = FlattenMultiInputWrapper(raw_env)
+        return Monitor(flat_env)
 
-    # GAIL venv needs to be vectorized
     venv = DummyVecEnv([make_env])
 
-    # 3. Setup custom Reward Network and PPO Generator
-    from imitation.algorithms.adversarial.gail import GAIL
-    from imitation.rewards.reward_nets import RewardNet
-    from imitation.util.networks import RunningNorm
-
-    # Wrap our custom MultiInputRewardNet to conform to the imitation base class
-    class WrappedRewardNet(RewardNet):
-        def __init__(self, observation_space, action_space):
-            super().__init__(observation_space, action_space)
-            self.net = MultiInputRewardNet(observation_space, action_space)
-
-        def forward(self, state, action, next_state, done) -> th.Tensor:
-            return self.net(state, action, next_state, done)
-
+    # 3. Setup custom PPO policy with CustomFlatFeatureExtractor
     print("\n[model] Initializing PPO Generator and Custom Discriminator...")
+    policy_kwargs = dict(
+        features_extractor_class=CustomFlatFeatureExtractor,
+        features_extractor_kwargs=dict(features_dim=256),
+    )
+    
     generator = PPO(
-        policy="MultiInputPolicy",
+        policy="ActorCriticPolicy",
         env=venv,
         batch_size=args.batch_size,
         learning_rate=args.lr,
+        policy_kwargs=policy_kwargs,
         verbose=1,
     )
 
-    # Use RunningNorm to normalize inputs to the reward net
-    reward_net = WrappedRewardNet(venv.observation_space, venv.action_space)
+    # Instantiate custom reward network
+    reward_net = FlatRewardNet(venv.observation_space, venv.action_space)
 
-    # 4. Instantiate GAIL Trainer
+    # 4. Instantiate GAIL Trainer from imitation library
+    from imitation.algorithms.adversarial.gail import GAIL
+
     print("\n[train] Initializing GAIL trainer...")
     gail_trainer = GAIL(
-        demonstrations=trajectories,
+        demonstrations=flat_trajectories,
         demo_batch_size=args.batch_size,
         venv=venv,
         gen_algo=generator,
