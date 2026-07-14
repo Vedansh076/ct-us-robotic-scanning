@@ -208,26 +208,20 @@ def find_rus_pose_files(data_root: str) -> List[Tuple[str, Path]]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def replay_and_save(
+    env,
     expert_actions: np.ndarray,
     sweep_name: str,
     output_dir: Path,
     traj_index: int,
-    subject_dir: str,
-    obs_size: int = 128,
 ) -> dict:
-    """Replay expert actions through the env and save the trajectory.
+    """Replay expert actions through an existing env and save the trajectory.
+
+    The env is NOT closed — it is reused across multiple calls with reset().
 
     Returns a stats dict with episode reward, steps, etc.
     """
-    from robotic_us_env import RoboticUltrasoundGymEnv
-
-    env = RoboticUltrasoundGymEnv(
-        subject_dir=subject_dir,
-        device="cpu",
-        render_mode="rgb_array",
-        max_episode_steps=len(expert_actions) + 10,
-        size=obs_size,
-    )
+    # Override max_episode_steps for this trajectory
+    env.max_episode_steps = len(expert_actions) + 10
 
     obs, info = env.reset()
 
@@ -248,8 +242,6 @@ def replay_and_save(
 
         if terminated or truncated:
             break
-
-    env.close()
 
     n_steps = len(actions_taken)
 
@@ -401,6 +393,17 @@ def main():
     print(f"         Subject: {args.subject}")
     print(f"         Output:  {args.output_dir}")
 
+    # Create the env ONCE and reuse across all trajectories
+    from robotic_us_env import RoboticUltrasoundGymEnv
+    env = RoboticUltrasoundGymEnv(
+        subject_dir=args.subject,
+        device="cpu",
+        render_mode="rgb_array",
+        max_episode_steps=args.max_episode_steps + 10,
+        size=args.obs_size,
+    )
+    print(f"  [env] Environment created successfully.")
+
     output_path = Path(args.output_dir)
     replay_stats = []
 
@@ -409,18 +412,20 @@ def main():
               f"({len(actions)} steps)...")
         t0 = time.time()
         stats = replay_and_save(
+            env=env,
             expert_actions=actions,
             sweep_name=sweep_name,
             output_dir=output_path,
             traj_index=idx,
-            subject_dir=args.subject,
-            obs_size=args.obs_size,
         )
         elapsed = time.time() - t0
         replay_stats.append(stats)
         print(f"    Reward: {stats['reward']:+.1f}  |  "
               f"Mean Force: {stats['mean_force']:.2f} N  |  "
               f"Time: {elapsed:.1f}s")
+
+    # Clean up
+    env.close()
 
     # ---- Final report ----
     print(f"\n{'=' * 60}")
