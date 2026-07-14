@@ -482,7 +482,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # Keep robot end effector within boundary bounds of mattress
         target_pos[0] = np.clip(target_pos[0], -0.45, 0.45) # X (bed width)
         target_pos[1] = np.clip(target_pos[1], -0.80, 0.80) # Y (bed length)
-        target_pos[2] = np.clip(target_pos[2], self.bed_top_z + 0.02, self.bed_top_z + 0.50) # Z
+        target_pos[2] = np.clip(target_pos[2], self.bed_top_z + 0.02, self.bed_top_z + 0.60) # Z
         
         target_orn = np.array(p.getQuaternionFromEuler(target_euler.tolist()))
         
