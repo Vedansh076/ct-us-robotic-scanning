@@ -213,6 +213,11 @@ class RoboticUltrasoundGymEnv(gym.Env):
         # Hide gripper fingers
         for link in [9, 10]:
             p.changeVisualShape(self.panda_id, link, rgbaColor=[0.0, 0.0, 0.0, 0.0])
+
+        # Disable physical collisions between all links of the robot and the patient body mesh.
+        # This prevents kinematic locking and allows smooth, force-guided trajectories.
+        for j in range(-1, p.getNumJoints(self.panda_id)):
+            p.setCollisionFilterPair(self.panda_id, self.body_id, j, -1, enableCollision=0)
             
         # Force/Episode variables
         self.step_counter = 0
