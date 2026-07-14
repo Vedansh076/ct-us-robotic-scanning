@@ -484,6 +484,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
         target_pos[1] = np.clip(target_pos[1], -0.80, 0.80) # Y (bed length)
         target_pos[2] = np.clip(target_pos[2], self.bed_top_z + 0.02, self.bed_top_z + 0.60) # Z
         
+        print(f"DEBUG STEP {self.step_counter} | action: {action[:3]} | curr: {curr_pos[1]:.4f} | delta: {delta_pos[1]:.4f} | target: {target_pos[1]:.4f}")
+        
         target_orn = np.array(p.getQuaternionFromEuler(target_euler.tolist()))
         
         # Drive robot using positional control
