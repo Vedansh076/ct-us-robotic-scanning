@@ -49,6 +49,7 @@ def main():
     parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc", "gail"], help="Algorithm (auto-detected from filename if not set)")
     parser.add_argument("--headless", action="store_true", help="Run in headless (rgb_array) mode without opening PyBullet GUI")
     parser.add_argument("--skip-unet", action="store_true", help="Skip U-Net inference and return raw bone segmentation masks")
+    parser.add_argument("--scale-y", type=float, default=1.0, help="Multiplier for Y-axis action to speed up visual sweep (default: 1.0)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -132,6 +133,9 @@ def main():
                     action, _states = model.predict(obs, deterministic=True)
                 else:
                     action, _states = policy.predict(obs, deterministic=True)
+                
+                # Apply Y-axis speed multiplier for visual evaluation
+                action[1] = action[1] * args.scale_y
                 
                 # Step the simulator
                 obs, reward, terminated, truncated, info = env.step(action)
