@@ -48,13 +48,17 @@ def flatten_trajectories(trajectories):
     flat_trajectories = []
     
     for traj in trajectories:
-        flat_obs = []
-        for obs in traj.obs:
-            image_flat = obs["image"].flatten().astype(np.float32) / 255.0
-            force = obs["force"].astype(np.float32)
-            pose = obs["pose"].astype(np.float32)
-            flat_obs.append(np.concatenate([image_flat, force, pose]))
-            
+        # traj.obs is a DictObs object containing batched numpy arrays
+        images = np.asarray(traj.obs["image"])  # (T+1, 128, 128)
+        forces = np.asarray(traj.obs["force"])  # (T+1, 1)
+        poses = np.asarray(traj.obs["pose"])    # (T+1, 7)
+        
+        # Flatten images to (T+1, 16384) and scale to [0, 1]
+        images_flat = images.reshape(len(images), -1).astype(np.float32) / 255.0
+        
+        # Concatenate along axis=1 to get (T+1, 16392)
+        flat_obs = np.concatenate([images_flat, forces, poses], axis=1)
+        
         flat_traj = Trajectory(
             obs=flat_obs,
             acts=traj.acts,
