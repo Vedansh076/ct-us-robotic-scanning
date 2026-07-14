@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--delay", type=float, default=0.02, help="Delay between steps in seconds for smoother viewing")
     parser.add_argument("--algo", type=str, default=None, choices=["a2c", "ppo", "sac", "bc", "gail"], help="Algorithm (auto-detected from filename if not set)")
     parser.add_argument("--headless", action="store_true", help="Run in headless (rgb_array) mode without opening PyBullet GUI")
+    parser.add_argument("--skip-unet", action="store_true", help="Skip U-Net inference and return raw bone segmentation masks")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -57,6 +58,7 @@ def main():
     print(f"  Subject:    {args.subject}")
     print(f"  Episodes:   {args.episodes}")
     print(f"  Headless:   {args.headless}")
+    print(f"  Skip U-Net: {args.skip_unet}")
     print("=" * 60)
 
     # 1. Verify checkpoint exists
@@ -71,7 +73,8 @@ def main():
         device="cpu",             # Run on CPU locally (no heavy GPU needed for demo)
         render_mode=render_mode,  # Set based on headless flag
         max_episode_steps=200,
-        size=128                  # Must match the 128x128 observation size used in training
+        size=128,                 # Must match the 128x128 observation size used in training
+        skip_unet=args.skip_unet
     )
 
     # 3. Auto-detect algorithm from checkpoint filename or --algo flag
