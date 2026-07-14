@@ -33,12 +33,14 @@ try:
     import torch
     import gymnasium
     import numpy as np
+    import numpy.dtypes
     torch.serialization.add_safe_globals([
         gymnasium.spaces.dict.Dict,
         gymnasium.spaces.box.Box,
         gymnasium.spaces.discrete.Discrete,
         np.dtype,
-        np.core.multiarray.scalar
+        np.core.multiarray.scalar,
+        numpy.dtypes.Float32DType
     ])
 except Exception:
     pass
