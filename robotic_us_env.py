@@ -268,18 +268,18 @@ class RoboticUltrasoundGymEnv(gym.Env):
             self.home_pos = np.array([tx, ty, self.bed_top_z + 0.35], dtype=np.float32)
             approach_pos = self.home_pos.copy()
             
-        # Reset robot arm joints to the high approach pose directly
+        # Reset robot arm joints directly to the target home pose
         initial_joints = p.calculateInverseKinematics(
             self.panda_id, PANDA_EE_LINK,
-            targetPosition=approach_pos.tolist(),
+            targetPosition=self.home_pos.tolist(),
             targetOrientation=self.home_orn.tolist()
         )
         for jid, v in zip(PANDA_ARM_JOINTS, initial_joints):
             p.resetJointState(self.panda_id, jid, v)
         for fj in (9, 10):
-            p.resetJointState(self.panda_id, fj, 0.04)
+            p.resetJointState(self.panda_id, fj, 0.04)  # Ensure fingers are initialized properly
             
-        # Drive robot down to the target home pose and settle
+        # Settle the robot in place at home_pos (no large movement)
         drive_panda_to_pose(self.panda_id, self.home_pos, self.home_orn)
         for _ in range(60):
             p.stepSimulation()
