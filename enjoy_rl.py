@@ -28,20 +28,15 @@ from stable_baselines3 import A2C, PPO, SAC
 from stable_baselines3.common.policies import BasePolicy
 from robotic_us_env import RoboticUltrasoundGymEnv
 
-# Register Gymnasium spaces and NumPy classes for safe unpickling in PyTorch 2.6+
+# Monkey-patch torch.load to default weights_only=False for PyTorch 2.6+ compatibility
 try:
     import torch
-    import gymnasium
-    import numpy as np
-    import numpy.dtypes
-    torch.serialization.add_safe_globals([
-        gymnasium.spaces.dict.Dict,
-        gymnasium.spaces.box.Box,
-        gymnasium.spaces.discrete.Discrete,
-        np.dtype,
-        np.core.multiarray.scalar,
-        numpy.dtypes.Float32DType
-    ])
+    original_load = torch.load
+    def patched_load(*args, **kwargs):
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return original_load(*args, **kwargs)
+    torch.load = patched_load
 except Exception:
     pass
 
