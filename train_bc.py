@@ -45,7 +45,7 @@ def load_demonstrations(demos_dir):
     -------
     trajectories : list of imitation.data.types.Trajectory
     """
-    from imitation.data.types import Trajectory
+    from imitation.data.types import DictObs, Trajectory
 
     demos_path = Path(demos_dir)
     traj_files = sorted(demos_path.glob("trajectory_*.npz"))
@@ -59,25 +59,22 @@ def load_demonstrations(demos_dir):
     for tf in traj_files:
         data = np.load(tf, allow_pickle=True)
 
-        # Reconstruct Dict observations
+        # Reconstruct Dict observations as DictObs (required by imitation library)
         obs_images = data["obs_image"]   # (T+1, H, W)
         obs_forces = data["obs_force"]   # (T+1, 1)
         obs_poses  = data["obs_pose"]    # (T+1, 7)
         actions    = data["actions"]      # (T, 6)
         terminal   = bool(data["terminal"])
 
-        # Build list of dict observations
-        n_obs = len(obs_images)
-        obs_list = []
-        for i in range(n_obs):
-            obs_list.append({
-                "image": obs_images[i],
-                "force": obs_forces[i],
-                "pose":  obs_poses[i],
-            })
+        # Build DictObs with stacked arrays — imitation library requires this format
+        obs = DictObs({
+            "image": obs_images,
+            "force": obs_forces,
+            "pose":  obs_poses,
+        })
 
         traj = Trajectory(
-            obs=obs_list,
+            obs=obs,
             acts=actions,
             infos=None,
             terminal=terminal,
