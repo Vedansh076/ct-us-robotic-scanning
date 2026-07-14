@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 3 — Autonomous Robotic Ultrasound RL Training is **successfully completed**. Both **A2C** and **SAC (Soft Actor-Critic)** policies have been fully trained and validated locally using `enjoy_rl.py`. **SAC achieved the project-record peak reward of +317.0** at 100,000 timesteps (`critic_loss = 0.758`), outperforming A2C (`+264.1`) due to off-policy entropy regularization. Both algorithms maintain ideal clinical contact force ($3.3–3.98\text{ N}$), remain strictly perpendicular to skin ($\pm 8.6^\circ$), and execute complete longitudinal sweeps along the entire patient spine.
+* **Current Focus:** Stage 4 — **Imitation Learning from Real Robotic Scanning Poses** is complete. Trained a Behavioral Cloning (BC) policy from **68k real Cavalcanti UR5 robotic scanning poses** (21 sweeps across 7 volunteers). BC loss converged from 5.85 → 2.0 in 50 epochs (33s on CUDA). Combined with Stage 3 RL results: SAC (+317.0), A2C (+264.1), PPO (-237.0). The project now has **5 autonomous scanning algorithms** (A2C, PPO, SAC, BC, DAgger-ready).
 
 ---
 

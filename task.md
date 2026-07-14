@@ -122,8 +122,8 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Create `train_bc.py` — Behavioral Cloning training with `imitation` library + SB3 MultiInputPolicy
   - [x] Update `enjoy_rl.py` with `--algo bc` support for evaluating BC/DAgger policies
   - [x] Update `commands.md` with Section 6: Imitation Learning commands
-  - [ ] Install `imitation` library on remote server (`pip install imitation`)
-  - [ ] Run `collect_demos.py --dry-run` on server to validate Cavalcanti pose parsing
-  - [ ] Run full demo collection on server (`collect_demos.py --output-dir demos/`)
-  - [ ] Train BC policy on server (`train_bc.py --demos-dir demos/ --epochs 50`)
+  - [x] Install `imitation` library on remote server (`pip install imitation`)
+  - [x] Run `collect_demos.py --dry-run` on server to validate Cavalcanti pose parsing: 21 sweeps, 67,525 poses → 3,996 actions
+  - [x] Run full demo collection on server: 21 trajectories saved in 18s
+  - [x] Train BC policy on server: loss 5.85 → 2.0 in 50 epochs (33s on CUDA), `prob_true_act` 0.3% → 20.3%
   - [ ] Download BC checkpoint and evaluate locally
