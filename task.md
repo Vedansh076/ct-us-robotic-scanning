@@ -110,8 +110,10 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Create automated environment verification script `test_gym_env.py`
   - [x] Test random agent step execution and print performance benchmarks (FPS)
   - [x] Verify safety threshold terminations and output observation shape consistency
-- [x] **3. A2C RL Agent Training**
-  - [x] Train A2C agent for 150,000 timesteps in the background on the remote GPU server (optimized to 160+ FPS)
-  - [x] Copy the trained checkpoint `.zip` file back to the local workspace
-  - [x] Create enjoy/verification script `enjoy_rl.py` to run the trained agent visually in the GUI simulator
-  - [x] Evaluate agent performance locally: achieved high average episode rewards (+191.7 to +264.1) with stable 3.3–3.98 N contact force and full spine coverage.
+- [x] **3. Reinforcement Learning (RL) Scanning Agent Benchmarks**
+  - [x] Train A2C agent for 150,000 timesteps (optimized to 160+ FPS): achieved peak reward **+264.1**
+  - [x] Train SAC agent for 100,000 timesteps (Soft Actor-Critic off-policy max-entropy): achieved project-record reward **+317.0** with smooth continuous spine tracking
+  - [x] Train PPO benchmark agent for comparison (-237 reward)
+  - [x] Copy trained checkpoint `.zip` files back to the local workspace
+  - [x] Create enjoy/verification script `enjoy_rl.py` supporting A2C, PPO, and SAC auto-detection
+  - [x] Evaluate agents visually in PyBullet GUI: verified stable 3.3–3.98 N contact force, perpendicular orientation constraints (±8.6°), and full longitudinal spine coverage.

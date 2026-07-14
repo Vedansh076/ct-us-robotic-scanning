@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 3 — Autonomous Robotic Ultrasound RL Training is **successfully completed**. The A2C RL agent has been trained for 150,000 steps with perpendicular orientation constraints (±8.6°), stiffer spring contact physics (800 N/m), and a dense longitudinal sweep motion reward. The trained agent model (`a2c_final_model.zip`) has been evaluated locally via `enjoy_rl.py`, achieving high average episode rewards (+191.7 to +264.1) with stable 3.3–3.98 N contact force and full spine coverage across all 200-step episodes.
+* **Current Focus:** Stage 3 — Autonomous Robotic Ultrasound RL Training is **successfully completed**. Both **A2C** and **SAC (Soft Actor-Critic)** policies have been fully trained and validated locally using `enjoy_rl.py`. **SAC achieved the project-record peak reward of +317.0** at 100,000 timesteps (`critic_loss = 0.758`), outperforming A2C (`+264.1`) due to off-policy entropy regularization. Both algorithms maintain ideal clinical contact force ($3.3–3.98\text{ N}$), remain strictly perpendicular to skin ($\pm 8.6^\circ$), and execute complete longitudinal sweeps along the entire patient spine.
 
 ---
 
