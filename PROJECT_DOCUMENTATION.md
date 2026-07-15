@@ -212,7 +212,7 @@ Input: (B, 2, 256, 256)   ← [CT slice (normalized), bone mask (binary)]
 
 #### Histogram Matching (`live_unet_demo.py`)
 
-The `--match-histogram` flag enables `skimage.exposure.match_histograms` in the inference path, which aligns the intensity distribution of each incoming live CT slice to the saved reference distribution in `model/reference_ct_slice.npy`. This reduces the domain gap between TotalSegmentator CT data (used in simulation) and the TCGA CT data the model was trained on.
+The `--no-match-histogram` flag disables `skimage.exposure.match_histograms` in the inference path. By default, histogram matching is enabled to align the intensity distribution of each incoming live CT slice to the saved reference distribution in `model/reference_ct_slice.npy`. This reduces the domain gap between TotalSegmentator CT data (used in simulation) and the TCGA CT data the model was trained on.
 
 ---
 

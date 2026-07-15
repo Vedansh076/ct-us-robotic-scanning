@@ -157,8 +157,8 @@ python live_unet_demo.py
 # Use a different subject
 python live_unet_demo.py --subject totalseg_patients/s0223
 
-# Enable intensity histogram matching (reduces domain gap between CT and training data)
-python live_unet_demo.py --match-histogram
+# Disable intensity histogram matching (enabled by default; reduces domain gap)
+python live_unet_demo.py --no-match-histogram
 
 # Skip neural network — display the raw bone mask overlay
 python live_unet_demo.py --skip-unet
