@@ -131,6 +131,6 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
     - [x] Create `train_act.py` with CVAE + Transformer Encoder-Decoder PyTorch model
     - [x] Create `enjoy_act.py` with temporal ensembling for evaluation
     - [x] Test code locally with random weights to verify dimensions
-    - [ ] Train ACT policy on the remote GPU server
+    - [x] Train ACT policy on the remote GPU server
     - [ ] Evaluate ACT visually in the simulator and compare performance with GAIL/BC
 
