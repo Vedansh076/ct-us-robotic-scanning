@@ -5,8 +5,7 @@ This guide explains how to run the A2C training script (`train_a2c.py`) on Googl
 ---
 
 ## Step 1 — Upload the Zip file to Google Drive
-1. Locate the file `ct-us-colab.zip` in your local project workspace:
-   `e:\DELL\internship\Data\HumanSubjects\HumanSubjects\ct_us\ct-us-colab.zip` (Size: ~177 MB)
+1. Create a zip archive of your local `ct_us` workspace folder. You can exclude large folders like `totalseg_patients/` to keep the file small, but make sure to include the Python code files and `model/` directory. Name this archive `ct-us-colab.zip`.
 2. Upload this ZIP file directly to the root of your **Google Drive** (`My Drive`).
 
 ---

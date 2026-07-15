@@ -376,7 +376,7 @@ python test_gym_env.py --headless  # Headless mode (faster)
 ## 11. Cloud Training on Google Colab
 
 For users without a local GPU, see **[COLAB_INSTRUCTIONS.md](COLAB_INSTRUCTIONS.md)** for a full step-by-step guide to:
-1. Upload the `ct-us-colab.zip` project bundle to Google Drive.
+1. Create and upload the `ct-us-colab.zip` project bundle to Google Drive.
 2. Extract and install dependencies on a Colab T4 GPU instance.
 3. Launch 500k-step A2C training (~1.9 hours at ~70 FPS).
 4. Back up checkpoints and TensorBoard logs back to Google Drive.
