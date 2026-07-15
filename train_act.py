@@ -47,18 +47,22 @@ class ACTDataset(Dataset):
         trajectories = load_demonstrations(demos_dir)
         self.samples = []
         
+        from imitation.data.types import maybe_unwrap_dictobs
+        
         # Process each trajectory
         for traj in trajectories:
-            obs_list = traj.obs
+            obs_dict = maybe_unwrap_dictobs(traj.obs)
+            images = obs_dict["image"]
+            forces = obs_dict["force"]
+            poses = obs_dict["pose"]
             actions = traj.acts
             T = len(actions)
             
             for t in range(T):
-                # Retrieve current observation
-                obs_t = obs_list[t]
-                image = obs_t["image"]  # (128, 128)
-                force = obs_t["force"]  # (1,)
-                pose = obs_t["pose"]    # (7,)
+                # Retrieve current observation elements from arrays
+                image = images[t]  # (128, 128)
+                force = forces[t]  # (1,)
+                pose = poses[t]    # (7,)
                 
                 # Retrieve future actions of length chunk_size
                 action_chunk = actions[t : t + chunk_size]
