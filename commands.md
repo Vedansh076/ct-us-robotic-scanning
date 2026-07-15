@@ -193,3 +193,26 @@ Verifies registration-aware 3D reslicing accuracy and PyTorch `grid_sample` exec
 ```powershell
 python test_slice.py
 ```
+
+---
+
+## 7. Action Chunking with Transformers (ACT) Benchmark
+
+### A. Train ACT Model (`train_act.py`)
+Trains the Action Chunking Transformer. Recommended mode is `--no-cvae` (CVAE disabled) to prevent latent space collapse and shortcut learning on spinal sweeps.
+
+```bash
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+# Recommended: Deterministic ACT (no CVAE)
+nohup taskset -c 0,1,2,3 python3 train_act.py --demos-dir demos/ --epochs 100 --chunk-size 20 --no-cvae > train_act.log 2>&1 &
+
+# Standard ACT (with CVAE)
+python3 train_act.py --demos-dir demos/ --epochs 100 --chunk-size 20
+```
+
+### B. Evaluate ACT Policy (`enjoy_act.py`)
+Runs the trained ACT policy in the PyBullet GUI simulator using temporal ensembling to smooth out overlaps.
+
+```powershell
+python enjoy_act.py --checkpoint act_checkpoints/act_policy.zip --skip-unet
+```

@@ -164,27 +164,34 @@ class ACTCvaeEncoder(nn.Module):
 
 class ActionChunkingTransformer(nn.Module):
     """Action Chunking with Transformers (ACT) model."""
-    def __init__(self, chunk_size=20, latent_dim=32, d_model=256, nhead=8, num_encoder_layers=4, num_decoder_layers=2):
+    def __init__(self, chunk_size=20, latent_dim=32, d_model=256, nhead=8, num_encoder_layers=4, num_decoder_layers=2, no_cvae=False):
         super().__init__()
         self.chunk_size = chunk_size
         self.latent_dim = latent_dim
         self.d_model = d_model
+        self.use_cvae = not no_cvae
         
         # 1. Feature encoders
         self.vision_encoder = ACTVisionEncoder(features_dim=256)
         self.proprio_encoder = ACTProprioEncoder(input_dim=8, features_dim=64)
         
-        # 2. CVAE encoder
-        self.cvae_encoder = ACTCvaeEncoder(obs_features_dim=320, action_dim=6, chunk_size=chunk_size, latent_dim=latent_dim)
-        
-        # 3. Projection heads to d_model
+        # 2. Projection heads to d_model
         self.vision_proj = nn.Linear(256, d_model)
         self.proprio_proj = nn.Linear(64, d_model)
-        self.latent_proj = nn.Linear(latent_dim, d_model)
+        
+        # 3. CVAE components (conditional)
+        if self.use_cvae:
+            self.cvae_encoder = ACTCvaeEncoder(obs_features_dim=320, action_dim=6, chunk_size=chunk_size, latent_dim=latent_dim)
+            self.latent_proj = nn.Linear(latent_dim, d_model)
+            # Source tokens: latent z, vision, proprio (seq_len = 3)
+            self.pos_emb = nn.Parameter(torch.randn(3, 1, d_model))
+        else:
+            self.cvae_encoder = None
+            self.latent_proj = None
+            # Source tokens: vision, proprio (seq_len = 2)
+            self.pos_emb = nn.Parameter(torch.randn(2, 1, d_model))
         
         # 4. Transformer components
-        # Source tokens: latent z, vision, proprio (seq_len = 3)
-        self.pos_emb = nn.Parameter(torch.randn(3, 1, d_model))
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=1024, activation='relu', batch_first=False)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
         
@@ -202,35 +209,39 @@ class ActionChunkingTransformer(nn.Module):
         # Extract features
         vis_feats = self.vision_encoder(image)      # (batch_size, 256)
         prop_feats = self.proprio_encoder(force, pose)  # (batch_size, 64)
-        obs_feats = torch.cat([vis_feats, prop_feats], dim=1) # (batch_size, 320)
         
-        # CVAE sampling
-        if self.training:
-            assert target_actions is not None, "Target actions required during training for CVAE"
-            mu, logvar = self.cvae_encoder(obs_feats, target_actions)
-            std = torch.exp(0.5 * logvar)
-            eps = torch.randn_like(std)
-            z = mu + eps * std
-        else:
-            # Deterministic inference: set z to prior mean
-            z = torch.zeros(batch_size, self.latent_dim, device=image.device)
-            mu, logvar = None, None
-            
         # Project inputs to d_model
         vis_proj = self.vision_proj(vis_feats)       # (batch_size, d_model)
         prop_proj = self.proprio_proj(prop_feats)   # (batch_size, d_model)
-        z_proj = self.latent_proj(z)                 # (batch_size, d_model)
         
-        # Construct source sequence for Transformer Encoder: seq_len = 3
-        # PyTorch Transformer defaults to (seq_len, batch_size, d_model)
-        src = torch.stack([z_proj, vis_proj, prop_proj], dim=0) # (3, batch, d_model)
+        # CVAE sampling & projection if enabled
+        if self.use_cvae:
+            obs_feats = torch.cat([vis_feats, prop_feats], dim=1) # (batch_size, 320)
+            if self.training:
+                assert target_actions is not None, "Target actions required during training for CVAE"
+                mu, logvar = self.cvae_encoder(obs_feats, target_actions)
+                std = torch.exp(0.5 * logvar)
+                eps = torch.randn_like(std)
+                z = mu + eps * std
+            else:
+                # Deterministic inference: set z to prior mean
+                z = torch.zeros(batch_size, self.latent_dim, device=image.device)
+                mu, logvar = None, None
+            
+            z_proj = self.latent_proj(z) # (batch_size, d_model)
+            # Construct source sequence for Transformer Encoder: seq_len = 3
+            src = torch.stack([z_proj, vis_proj, prop_proj], dim=0) # (3, batch, d_model)
+        else:
+            # Bypassed CVAE: only visual and proprioception tokens (seq_len = 2)
+            src = torch.stack([vis_proj, prop_proj], dim=0) # (2, batch, d_model)
+            mu, logvar = None, None
+            
         src = src + self.pos_emb # Add positional embeddings
         
         # Encode
-        memory = self.transformer_encoder(src) # (3, batch, d_model)
+        memory = self.transformer_encoder(src) # (seq_len, batch, d_model)
         
         # Construct target sequence (queries) for Transformer Decoder: seq_len = chunk_size
-        # Repeat query embeddings across batch
         tgt = self.query_emb.repeat(1, batch_size, 1) # (chunk_size, batch, d_model)
         
         # Decode
@@ -268,8 +279,11 @@ def train_one_epoch(model, dataloader, optimizer, kl_weight, device):
         # Reconstruction loss (MAE / L1 loss)
         l1_loss = F.l1_loss(pred_actions, target_actions, reduction='mean')
         
-        # KL divergence loss
-        kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        # KL divergence loss (only if CVAE is enabled)
+        if mu is not None and logvar is not None:
+            kl_loss = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+        else:
+            kl_loss = torch.tensor(0.0, device=device)
         
         # Combined loss
         loss = l1_loss + kl_weight * kl_loss
@@ -318,6 +332,7 @@ def main():
     parser.add_argument("--kl-weight", type=float, default=10.0, help="Weight factor for KL loss")
     parser.add_argument("--chunk-size", type=int, default=20, help="Action chunk sequence size (k)")
     parser.add_argument("--latent-dim", type=int, default=32, help="CVAE latent space z dimension")
+    parser.add_argument("--no-cvae", action="store_true", help="Bypass CVAE and train a deterministic Action Chunking Transformer")
     parser.add_argument("--save-dir", type=str, default="act_checkpoints", help="Save directory")
     parser.add_argument("--device", type=str, default="auto", help="auto, cpu, or cuda")
     args = parser.parse_args()
@@ -329,7 +344,9 @@ def main():
     print(f"  Epochs:      {args.epochs}")
     print(f"  Batch size:  {args.batch_size}")
     print(f"  LR:          {args.lr}")
-    print(f"  KL weight:   {args.kl_weight}")
+    print(f"  CVAE mode:   {'Disabled' if args.no_cvae else 'Enabled'}")
+    if not args.no_cvae:
+        print(f"  KL weight:   {args.kl_weight}")
     print(f"  Chunk size:  {args.chunk_size}")
     print(f"  Save dir:    {args.save_dir}")
     print("=" * 60)
@@ -356,6 +373,7 @@ def main():
     model = ActionChunkingTransformer(
         chunk_size=args.chunk_size,
         latent_dim=args.latent_dim,
+        no_cvae=args.no_cvae,
     ).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
