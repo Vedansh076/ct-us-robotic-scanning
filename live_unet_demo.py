@@ -164,6 +164,7 @@ PROBE_COMPONENTS = (
 )
 
 DEFAULT_UNET_CKPT = PROJECT_ROOT / "runs" / "cavalcanti_unet" / "best_model.pth"
+DEFAULT_UNET_CPU_CKPT = PROJECT_ROOT / "runs" / "cavalcanti_unet_cpu" / "best_model.pth"
 DEFAULT_PIX2PIX_CKPT = MODEL_ROOT / "runs" / "exp_pix2pix" / "best_model.pth"
 
 # ── normalisation constants (Concordia paired CT-US training data) ─────────────
@@ -1066,7 +1067,27 @@ def parse_args() -> argparse.Namespace:
              "convolution simulator (no neural network required), 'ray' uses the "
              "ray-tracing physics simulator with Snell's law refraction.",
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--cpu-mode",
+        action="store_true",
+        help="CPU-optimised mode: uses a lightweight U-Net (base_features=16, "
+             "0.83M params) at 128x128 resolution for ~22 FPS on CPU. "
+             "Automatically sets --base-features 16, --size 128, and loads the "
+             "CPU-optimised checkpoint from runs/cavalcanti_unet_cpu/.",
+    )
+    args = parser.parse_args()
+
+    # ── Apply --cpu-mode overrides ─────────────────────────────────────────────
+    if args.cpu_mode:
+        args.base_features = 16
+        args.size = 128
+        # Use CPU checkpoint unless user explicitly provided a different one
+        if args.checkpoint == "runs/cavalcanti_unet/best_model.pth":
+            args.checkpoint = str(DEFAULT_UNET_CPU_CKPT)
+        print(f"[cpu-mode] Lightweight U-Net: base_features=16, size=128, "
+              f"checkpoint={args.checkpoint}")
+
+    return args
 
 
 
