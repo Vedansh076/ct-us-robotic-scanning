@@ -28,7 +28,7 @@ def main():
     print("  Initializing environment ...")
     env = RoboticUltrasoundGymEnv(
         subject_dir="totalseg_patients/s0058",
-        checkpoint_path="model/runs/exp1_2IP/exp1/best_model.pth",
+        checkpoint_path="runs/cavalcanti_unet/best_model.pth",
         device="auto",
         render_mode=render_mode,
         max_episode_steps=200,
