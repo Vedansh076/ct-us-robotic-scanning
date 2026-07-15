@@ -59,6 +59,11 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Consequence:** The previous transverse constraint `abs(probe_x[0]) < 0.4` was penalizing candidates where the probe's width was aligned longitudinally. However, in the Cavalcanti dataset, sweeps are captured in different directions—R1 is a sagittal sweep (meaning the probe width is aligned longitudinally, so `abs(probe_x[0])` is close to 0). This caused the correct candidates to be penalized, forcing ICP to select wrong or out-of-bounds candidates for URS02-07, resulting in black/rotated slices.
 * **Resolution:** Removed the strict `abs(probe_x[0]) < 0.4` sideways check since the fixed rotation center prevents sideways alignment drift naturally. Kept only the universal ceiling-pointing check (`probe_z[1] > 0`).
 
+### Bug 10: SB3 DummyVecEnv Batch Formatting & Cross-Patient Standoff Offset [RESOLVED]
+* **Code Location:** `enjoy_policy.py` (`main()` loop action formatting & observation prep).
+* **Consequence:** Passing a 1D action vector `(6,)` to `DummyVecEnv.step()` caused `DummyVecEnv` to treat the 6 elements as scalar inputs for 6 parallel environments, sending only `action[0]` to environment 0 repeatedly. Furthermore, out-of-distribution height variations on different patient meshes caused single-subject RL policies to output lift-off actions (+Z) when skin height dropped below the baseline height of $1.238\text{ m}$.
+* **Resolution:** Reshaped `act_vec` to 2D `(1, 6)` for `DummyVecEnv.step(exec_action)`, preserved un-batched observation dictionary shapes matching Gymnasium specs (`"image"` `(128, 128)`, `"force"` `(1,)`, `"pose"` `(7,)`), added baseline Z-height alignment (`z_offset = 1.238 - home_pos[2]`), and added contact compliance (`if force == 0.0: act_vec[2] = -0.25`) to ensure continuous 200-step scanning sweeps across all patient torso meshes (`s0011`, `s0058`, `s0223`, `s0250`, `s0310`).
+
 
 ### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
 * **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
