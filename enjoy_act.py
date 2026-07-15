@@ -23,7 +23,15 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent.resolve()))
 
 from robotic_us_env import RoboticUltrasoundGymEnv
-from train_act import ActionChunkingTransformer, ACTVisionEncoder, ACTProprioEncoder, ACTCvaeEncoder
+from train_act import ActionChunkingTransformer, ACTVisionEncoder, ACTProprioEncoder, ACTCvaeEncoder, MlpActionChunkingPolicy
+
+# Alias classes in __main__ module to allow PyTorch to unpickle models saved from train_act.py
+import __main__
+__main__.MlpActionChunkingPolicy = MlpActionChunkingPolicy
+__main__.ActionChunkingTransformer = ActionChunkingTransformer
+__main__.ACTVisionEncoder = ACTVisionEncoder
+__main__.ACTProprioEncoder = ACTProprioEncoder
+__main__.ACTCvaeEncoder = ACTCvaeEncoder
 
 # Monkey-patch torch.load to default weights_only=False for PyTorch 2.6+ compatibility
 try:
@@ -152,6 +160,9 @@ def main():
         print(f"[model] Loaded dataset normalization statistics from {stats_path}")
     else:
         print("[model] Warning: norm_stats.pkl not found. Evaluating with raw un-normalized values.")
+
+    # Initialize temporal ensembler
+    ensembler = ACTTemporalEnsemble(chunk_size=model.chunk_size, temperature=args.temperature)
 
     try:
         for ep in range(1, args.episodes + 1):
