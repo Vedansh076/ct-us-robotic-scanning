@@ -136,8 +136,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
                  mesh_scale=1.0,
                  size=256,
                  pixel_spacing=1.0,
-                 base_features=64,
-                 skip_unet=True):
+                 base_features=16,
+                 skip_unet=True,
+                 substeps=5,
+                 max_velocity=1.5):
         super().__init__()
         
         self.subject_dir = Path(resolve_subject_dir(subject_dir))
@@ -150,6 +152,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
         self.pixel_spacing = pixel_spacing
         self.base_features = base_features
         self.skip_unet = skip_unet
+        self.substeps = int(substeps)
+        self.max_velocity = float(max_velocity)
         
         # Load device
         self.device = select_device(device)
@@ -487,10 +491,10 @@ class RoboticUltrasoundGymEnv(gym.Env):
         target_orn = np.array(p.getQuaternionFromEuler(target_euler.tolist()))
         
         # Drive robot using positional control
-        drive_panda_to_pose(self.panda_id, target_pos, target_orn)
+        drive_panda_to_pose(self.panda_id, target_pos, target_orn, max_velocity=self.max_velocity)
         
         # Step simulation to let robot move
-        for _ in range(5):
+        for _ in range(self.substeps):
             p.stepSimulation()
             
         # Get new observation

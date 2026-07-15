@@ -69,13 +69,21 @@ def main():
     # 2. Instantiate the Gymnasium environment
     render_mode = "rgb_array" if args.headless else "human"
     print(f"\n[env] Launching PyBullet simulator (mode: {render_mode})...")
+    
+    # Scale physics steps and joint speed limits proportionally to scale_y to ensure smooth tracking
+    import numpy as np
+    eval_substeps = int(np.clip(5 * (args.scale_y ** 0.5), 5, 20))
+    eval_max_vel = float(np.clip(1.5 * args.scale_y, 1.5, 8.0))
+    
     env = RoboticUltrasoundGymEnv(
         subject_dir=args.subject,
         device="cpu",             # Run on CPU locally (no heavy GPU needed for demo)
         render_mode=render_mode,  # Set based on headless flag
         max_episode_steps=200,
         size=128,                 # Must match the 128x128 observation size used in training
-        skip_unet=args.skip_unet
+        skip_unet=args.skip_unet,
+        substeps=eval_substeps,
+        max_velocity=eval_max_vel,
     )
 
     # 3. Auto-detect algorithm from checkpoint filename or --algo flag
