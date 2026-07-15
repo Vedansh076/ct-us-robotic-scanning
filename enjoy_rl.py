@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Run in headless (rgb_array) mode without opening PyBullet GUI")
     parser.add_argument("--skip-unet", action="store_true", help="Skip U-Net inference and return raw bone segmentation masks")
     parser.add_argument("--scale-y", type=float, default=1.0, help="Multiplier for Y-axis action to speed up visual sweep (default: 1.0)")
+    parser.add_argument("--smooth-alpha", type=float, default=0.35, help="EMA smoothing factor for evaluation actions (default: 0.35)")
     args = parser.parse_args()
 
     print("=" * 60)

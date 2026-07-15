@@ -136,7 +136,7 @@ class RoboticUltrasoundGymEnv(gym.Env):
                  mesh_scale=1.0,
                  size=256,
                  pixel_spacing=1.0,
-                 base_features=16,
+                 base_features=64,
                  skip_unet=True,
                  substeps=5,
                  max_velocity=1.5):

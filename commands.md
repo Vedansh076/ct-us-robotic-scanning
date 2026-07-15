@@ -85,6 +85,25 @@ Runs the trained BC/IL policy in the PyBullet GUI simulator.
 python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
 ```
 
+### D. Train GAIL Policy (`train_gail.py`)
+Trains a Generative Adversarial Imitation Learning (GAIL) policy. Requires `--bc-checkpoint` for BC pre-initialization to prevent conservative action collapse.
+
+```bash
+cd ~/workspace/lakshya/ct-us-robotic-scanning
+# Recommended: BC-initialized GAIL (prevents conservative action collapse)
+nohup taskset -c 0,1,2,3 python3 train_gail.py --demos-dir demos/ --timesteps 50000 --bc-checkpoint bc_checkpoints/bc_policy.zip > train_gail.log 2>&1 &
+
+# Without BC init (may converge to tiny actions)
+python3 train_gail.py --demos-dir demos/ --timesteps 50000
+```
+
+### E. Evaluate GAIL Policy (`enjoy_rl.py --algo gail`)
+Runs the trained GAIL generator policy in the PyBullet GUI simulator.
+
+```powershell
+python enjoy_rl.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail --skip-unet
+```
+
 ---
 
 ## 2. Deep Generative Models & Live Simulation (`live_unet_demo.py`)
