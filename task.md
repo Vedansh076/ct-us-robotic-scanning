@@ -127,3 +127,10 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Run full demo collection on server: 21 trajectories saved in 18s
   - [x] Train BC policy on server: loss 5.85 → 2.0 in 50 epochs (33s on CUDA), `prob_true_act` 0.3% → 20.3%
   - [x] Download BC checkpoint and evaluate locally: verified smooth visual sweeping and ideal contact force (3.89 N) in local PyBullet GUI.
+  - [/] **5. Action Chunking with Transformers (ACT) Benchmark**
+    - [x] Create `train_act.py` with CVAE + Transformer Encoder-Decoder PyTorch model
+    - [x] Create `enjoy_act.py` with temporal ensembling for evaluation
+    - [x] Test code locally with random weights to verify dimensions
+    - [ ] Train ACT policy on the remote GPU server
+    - [ ] Evaluate ACT visually in the simulator and compare performance with GAIL/BC
+
