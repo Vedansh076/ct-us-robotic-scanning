@@ -1,6 +1,6 @@
 # CT-to-Ultrasound Robotic Scanning Simulation
 
-> A PyBullet-based simulation environment where a Franka Emika Panda robot arm equipped with an ultrasound probe autonomously scans a patient torso, synthesizing realistic B-mode ultrasound images from CT volumes in real-time using a deep-learning U-Net.
+> A PyBullet-based simulation environment where a Franka Emika Panda robot arm equipped with a curved ultrasound probe autonomously scans a patient torso, synthesizing realistic B-mode ultrasound images from CT volumes in real-time using deep learning and physics-based rendering.
 
 ---
 
@@ -11,10 +11,15 @@
 3. [Setup & Installation](#3-setup--installation)
 4. [Data Pipeline](#4-data-pipeline)
 5. [Running the Interactive Simulation](#5-running-the-interactive-simulation)
-6. [Training the Reinforcement Learning Agent](#6-training-the-reinforcement-learning-agent)
-7. [Cloud Training on Google Colab](#7-cloud-training-on-google-colab)
-8. [Repository Structure](#8-repository-structure)
-9. [Git Workflow](#9-git-workflow)
+6. [Ultrasound Synthesis Modes](#6-ultrasound-synthesis-modes)
+7. [Training Autonomous Scanning Agents](#7-training-autonomous-scanning-agents)
+8. [Evaluating Trained Policies](#8-evaluating-trained-policies)
+9. [Imitation Learning from Real Robot Data](#9-imitation-learning-from-real-robot-data)
+10. [Gymnasium Environment Reference](#10-gymnasium-environment-reference)
+11. [Cloud Training on Google Colab](#11-cloud-training-on-google-colab)
+12. [Repository Structure](#12-repository-structure)
+13. [Documentation Map](#13-documentation-map)
+14. [Git Workflow](#14-git-workflow)
 
 ---
 
@@ -22,17 +27,29 @@
 
 This project builds an end-to-end pipeline for **autonomous robotic ultrasound scanning**:
 
-1. **Patient Mesh Generation** — 3D CT volumes from the [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) dataset are processed into watertight skin meshes (`.obj`) and bone segmentation labels (`.nii.gz`) using marching cubes.
+1. **Patient Mesh Generation** — 3D CT volumes from [TotalSegmentator](https://github.com/wasserth/TotalSegmentator) are processed into watertight skin meshes (`.obj`) and binary bone labels (`.nii.gz`) using marching cubes.
 
-2. **Generative U-Net** — A 2-channel U-Net (CT intensity slice + binary bone mask → simulated B-mode ultrasound image) is trained to synthesize realistic ultrasound frames in real-time during the simulation, without running a full wave equation solver.
+2. **4 Ultrasound Synthesis Modes** — B-mode ultrasound images are synthesized from CT data using four interchangeable methods:
+   - **U-Net** — 2-channel deep learning (CT + bone mask → simulated US)
+   - **Pix2Pix GAN** — Conditional adversarial network
+   - **Physics Convolution** — Rayleigh speckle + tissue attenuation + PSF (no GPU required)
+   - **Ray-Tracing** — Snell's law refraction at tissue boundaries (no GPU required)
 
-3. **PyBullet Physics Simulation** — The Franka Panda arm, the ultrasound probe (modeled as a curved convex-array transducer), and the patient mesh are loaded into a PyBullet physics scene with gravity, contact forces, and a hospital bed environment.
+3. **PyBullet Physics Simulation** — Franka Panda robot arm, curved convex-array probe, patient mesh, and hospital bed loaded in a full physics scene with gravity and contact forces.
 
-4. **Coordinate Registration** — A mathematically exact affine transform pipeline maps the probe's contact position in PyBullet world coordinates to a precise voxel index inside the CT volume, accounting for NIfTI LPS coordinates, mesh centering offsets, body placement, and non-isotropic mesh scaling.
+4. **Coordinate Registration** — Mathematically exact affine transforms map the probe's contact position in PyBullet world coordinates to CT voxel indices, accounting for NIfTI LPS conventions, mesh centering, body placement, and non-isotropic scaling.
 
-5. **OpenAI Gymnasium Environment** — The simulation is wrapped in a standard `gymnasium.Env` interface, making it directly compatible with Stable-Baselines3 RL algorithms.
+5. **OpenAI Gymnasium Environment** — Standard `gymnasium.Env` interface compatible with Stable-Baselines3 RL algorithms.
 
-6. **A2C Reinforcement Learning Agent** — An Advantage Actor-Critic (A2C) agent is trained to navigate the probe across the patient's skin surface to maintain good acoustic contact and locate bone structures.
+6. **5 Trained Autonomous Scanning Algorithms:**
+
+   | Algorithm | Type | Peak Reward | Checkpoint |
+   |-----------|------|-------------|------------|
+   | **SAC** | Off-policy RL | **+317.0** (best) | `sac_checkpoints/sac_final_model.zip` |
+   | **A2C** | On-policy RL | +264.1 | `a2c_checkpoints/a2c_final_model.zip` |
+   | **PPO** | On-policy RL | -237.0 | `ppo_checkpoints/` (server) |
+   | **BC** | Imitation Learning | loss 2.0 | `bc_checkpoints/bc_policy.zip` |
+   | **GAIL** | Adversarial IL | — | `gail_checkpoints/gail_policy.zip` |
 
 ---
 
@@ -50,12 +67,13 @@ This project builds an end-to-end pipeline for **autonomous robotic ultrasound s
 | scipy | ≥ 1.11 |
 | OpenCV | ≥ 4.8 |
 | NumPy | ≥ 1.24 |
+| imitation | ≥ 1.0 (for BC/GAIL training only) |
 
 Install all Python dependencies:
 
 ```bash
 pip install torch torchvision pybullet gymnasium stable-baselines3[extra] \
-            nibabel scikit-image scipy opencv-python trimesh tqdm
+            nibabel scikit-image scipy opencv-python trimesh tqdm imitation
 ```
 
 ---
@@ -104,27 +122,6 @@ python generate_patient_meshes.py --input-dir totalseg_patients --subject s0058
 - The body binary volume is zero-padded before marching cubes to guarantee fully closed (manifold) meshes with no open borders.
 - Triangle winding order is inverted so all normals point outward — this prevents PyBullet's back-face culling from making the mesh appear transparent/hollow.
 
-### 3.4 (Optional) Train the U-Net
-
-If you have a GPU and want to retrain the CT→US translation model from scratch:
-
-```bash
-# Generate 2D paired training slices from the 3D TCGA patient volumes
-python gen_data.py --subject TCGA-QQ-A8VG
-python gen_data.py --subject TCGA-QQ-ASV2
-python gen_data.py --subject TCGA-QQ-ASVC
-
-# Train the 2-channel U-Net (CT + bone mask → simulated ultrasound)
-python model/train.py \
-    --data_root dataset \
-    --output_dir model/runs/exp1 \
-    --epochs 100 \
-    --batch_size 8 \
-    --lr 2e-4
-```
-
-A pre-trained checkpoint is already included at `model/runs/exp1_2IP/exp1/best_model.pth` and is used by default.
-
 ---
 
 ## 4. Data Pipeline
@@ -154,7 +151,7 @@ The **registration_meta.json** stores:
 Launch the real-time PyBullet GUI demo:
 
 ```bash
-# Use the default patient (s0058)
+# Use the default patient (s0058) with U-Net synthesis
 python live_unet_demo.py
 
 # Use a different subject
@@ -163,7 +160,7 @@ python live_unet_demo.py --subject totalseg_patients/s0223
 # Enable intensity histogram matching (reduces domain gap between CT and training data)
 python live_unet_demo.py --match-histogram
 
-# Skip U-Net and display the raw bone mask overlay
+# Skip neural network — display the raw bone mask overlay
 python live_unet_demo.py --skip-unet
 ```
 
@@ -186,26 +183,75 @@ python live_unet_demo.py --skip-unet
 
 ---
 
-## 6. Training the Reinforcement Learning Agent
+## 6. Ultrasound Synthesis Modes
 
-The RL agent uses **Advantage Actor-Critic (A2C)** from Stable-Baselines3, trained inside the `RoboticUltrasoundGymEnv` Gymnasium environment.
-
-### 6.1 Run Training Locally
+The simulation supports 4 interchangeable B-mode ultrasound synthesis methods:
 
 ```bash
-python train_a2c.py \
-    --timesteps 100000 \
-    --subject totalseg_patients/s0058 \
-    --n-steps 20 \
-    --lr 7e-4 \
-    --save-freq 5000 \
-    --tb-log ./a2c_tensorboard/ \
-    --save-dir ./a2c_checkpoints/
+python live_unet_demo.py --sim-mode unet       # Deep learning U-Net (default, needs GPU)
+python live_unet_demo.py --sim-mode pix2pix     # Pix2Pix conditional GAN (needs GPU)
+python live_unet_demo.py --sim-mode conv        # Physics convolution (CPU only)
+python live_unet_demo.py --sim-mode ray         # Ray-tracing with Snell's law (CPU only)
 ```
 
-By default, the environment runs in **Strategy 2 (mask-based)** mode (`skip_unet=True`), which bypasses U-Net inference entirely and uses the binary bone mask as the observation image. This achieves **~440 FPS** on a dedicated Colab instance versus ~12 FPS with U-Net enabled. The learned policy transfers naturally to U-Net outputs at evaluation time.
+| Mode | Method | GPU Required | Speed | Key Features |
+|------|--------|:---:|-------|-------------|
+| `unet` | 2-channel U-Net | Yes | ~30 Hz | CT+bone → simulated US, trained on Cavalcanti spine data |
+| `pix2pix` | Pix2Pix GAN | Yes | ~25 Hz | Conditional adversarial training for sharper textures |
+| `conv` | Physics v3 | No | ~35 Hz | Rayleigh speckle, CT backscatter, carrier PSF, attenuation |
+| `ray` | Ray-tracing | No | ~28ms/frame | Snell's law refraction, shadow ratio 0.49 |
 
-### 6.2 Monitor Training with TensorBoard
+### Model Checkpoints
+
+| Synthesis Mode | Checkpoint Path |
+|---|---|
+| U-Net | `model/runs/exp1_2IP/exp1/best_model.pth` |
+| Pix2Pix | `model/runs/exp_pix2pix/best_model.pth` |
+| Conv / Ray | No checkpoint needed (physics-based) |
+
+Specify a custom checkpoint:
+```bash
+python live_unet_demo.py --checkpoint model/runs/exp_pix2pix/best_model.pth --sim-mode pix2pix
+```
+
+### Quantitative Evaluation
+
+Calculate SSIM, PSNR, and MAE over test subjects:
+```bash
+python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --eval
+```
+
+---
+
+## 7. Training Autonomous Scanning Agents
+
+All RL agents are trained inside the `RoboticUltrasoundGymEnv` Gymnasium environment using Stable-Baselines3.
+
+By default, training uses **Strategy 2 (mask-based)** mode (`skip_unet=True`), which bypasses U-Net inference entirely and uses the binary bone mask as the observation image. This achieves **~440 FPS** versus ~12 FPS with U-Net enabled. The learned policy transfers naturally to U-Net outputs at evaluation time.
+
+### 7.1 A2C (Advantage Actor-Critic)
+
+```bash
+# Recommended (on server with dedicated CPU cores)
+nohup taskset -c 0,1,2,3 python3 train_a2c.py --timesteps 150000 --save-freq 30000 > train_a2c.log 2>&1 &
+
+# Local training
+python train_a2c.py --timesteps 100000 --n-steps 20 --lr 7e-4 --save-freq 5000
+```
+
+### 7.2 SAC (Soft Actor-Critic) — **Best Performance**
+
+```bash
+nohup taskset -c 0,1,2,3 python3 train_sac.py --timesteps 100000 --save-freq 20000 > train_sac.log 2>&1 &
+```
+
+### 7.3 PPO (Proximal Policy Optimization)
+
+```bash
+nohup taskset -c 0,1,2,3 python3 train_ppo.py --timesteps 100000 --n-steps 2048 --batch-size 64 > train_ppo.log 2>&1 &
+```
+
+### 7.4 Monitor Training with TensorBoard
 
 ```bash
 tensorboard --logdir ./a2c_tensorboard/
@@ -213,16 +259,80 @@ tensorboard --logdir ./a2c_tensorboard/
 
 Navigate to `http://localhost:6006` to view episode reward, policy loss, and value loss curves.
 
-### 6.3 RL Environment Details
+---
 
-**Action Space** — 6-DOF continuous, clipped to `[-1, 1]`:
+## 8. Evaluating Trained Policies
+
+Use `enjoy_rl.py` to visually evaluate any trained policy in the PyBullet GUI. The algorithm is auto-detected from the checkpoint filename:
+
+```bash
+# A2C
+python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+
+# SAC (best performing)
+python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip
+
+# PPO
+python enjoy_rl.py --checkpoint ppo_checkpoints/ppo_final_model.zip
+
+# Behavioral Cloning (requires --algo bc)
+python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
+
+# GAIL
+python enjoy_rl.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail
+
+# Headless evaluation (no GUI)
+python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip --headless
+```
+
+---
+
+## 9. Imitation Learning from Real Robot Data
+
+The project supports learning from the [Cavalcanti Robotic Lumbar Spine Dataset](https://data.mendeley.com/) — real UR5 scanning poses from 7 volunteers (21 sweeps, 68k poses).
+
+### 9.1 Collect Expert Demonstrations
+
+Parses `RUS_pose.txt` files, converts real scanning trajectories to normalized delta-actions, and replays them through the environment:
+
+```bash
+# Dry-run: print statistics without creating the environment
+python3 collect_demos.py --data-root data/Cavalcanti --dry-run
+
+# Full collection: replay through env and save trajectory .npz files
+python3 collect_demos.py --data-root data/Cavalcanti --output-dir demos/ --stride 15
+
+# Process specific volunteers only
+python3 collect_demos.py --data-root data/Cavalcanti --output-dir demos/ --volunteers URS01 URS02
+```
+
+### 9.2 Train Behavioral Cloning Policy
+
+```bash
+nohup python3 train_bc.py --demos-dir demos/ --epochs 50 > train_bc.log 2>&1 &
+
+# With custom hyperparameters
+python3 train_bc.py --demos-dir demos/ --epochs 100 --lr 1e-4 --batch-size 128
+```
+
+### 9.3 Train GAIL Policy
+
+```bash
+nohup python3 train_gail.py --demos-dir demos/ --timesteps 100000 > train_gail.log 2>&1 &
+```
+
+---
+
+## 10. Gymnasium Environment Reference
+
+### Action Space — 6-DOF continuous, clipped to `[-1, 1]`:
 
 | Index | Meaning | Scale Applied |
 |---|---|---|
 | 0–2 | `dx, dy, dz` (position delta) | ×0.01 m (±1 cm per step) |
 | 3–5 | `droll, dpitch, dyaw` (orientation delta) | ×0.05 rad (±2.9° per step) |
 
-**Observation Space** — Dictionary:
+### Observation Space — Dictionary:
 
 | Key | Shape | Type | Description |
 |---|---|---|---|
@@ -230,7 +340,7 @@ Navigate to `http://localhost:6006` to view episode reward, policy loss, and val
 | `"force"` | `(1,)` | `float32` | Estimated normal contact force in Newtons |
 | `"pose"` | `(7,)` | `float32` | EE position (xyz) + orientation (quaternion xyzw) |
 
-**Reward Function:**
+### Reward Function:
 
 | Component | Value | Condition |
 |---|---|---|
@@ -239,31 +349,31 @@ Navigate to `http://localhost:6006` to view episode reward, policy loss, and val
 | `R_f` | `−1.0 × (F − 8)` | Over-pressure: F > 8 N |
 | `R_f` | `−2.0` | No contact: F = 0 |
 | `R_b` (bone reward) | `+1.5` | Bone pixels visible in segmentation slice |
-| `R_a` (smoothness) | `−0.1 × ‖action‖²` | Always (penalizes jerk) |
+| `R_sweep` (sweep) | `+0.5 × |action_y|` | Longitudinal sweep while in 2–8N contact over bone |
+| `R_jerk` (smoothness) | `−0.1 × ‖Δaction‖²` | Always (penalizes inter-step jerk) |
 
-**Termination Conditions:**
+### Termination Conditions:
 
 - `terminated = True` if contact force exceeds **12 N** (patient safety limit).
 - `terminated = True` if no contact is maintained for **30 consecutive steps**.
 - `truncated = True` after **200 steps** (episode horizon).
 
-### 6.4 Verify the Environment
+### Contact Physics:
 
-Before training, run the diagnostic script to confirm the environment initializes correctly and measure performance:
+- Spring constant: **k = 800 N/m**, standoff = 3 mm
+- Ideal contact window: **2–8 N**
+- Orientation clamped to ±0.15 rad (±8.6°) from perpendicular
+
+### Verify the Environment
 
 ```bash
-# Visual mode (opens PyBullet GUI and OpenCV window)
-python test_gym_env.py
-
-# Headless mode (faster, no display)
-python test_gym_env.py --headless
+python test_gym_env.py           # Visual mode (PyBullet GUI)
+python test_gym_env.py --headless  # Headless mode (faster)
 ```
-
-This script runs 200 random-action steps, prints per-step force/reward, verifies observation shapes, and reports FPS.
 
 ---
 
-## 7. Cloud Training on Google Colab
+## 11. Cloud Training on Google Colab
 
 For users without a local GPU, see **[COLAB_INSTRUCTIONS.md](COLAB_INSTRUCTIONS.md)** for a full step-by-step guide to:
 1. Upload the `ct-us-colab.zip` project bundle to Google Drive.
@@ -273,61 +383,100 @@ For users without a local GPU, see **[COLAB_INSTRUCTIONS.md](COLAB_INSTRUCTIONS.
 
 ---
 
-## 8. Repository Structure
+## 12. Repository Structure
 
 ```
 ct_us/
-├── live_unet_demo.py          # Interactive PyBullet GUI + real-time U-Net inference
-├── robotic_us_env.py          # Gymnasium environment (wraps PyBullet + slicing + U-Net)
-├── train_a2c.py               # A2C RL training script (Stable-Baselines3)
-├── test_gym_env.py            # Environment diagnostic & speed benchmark
-├── extract_slice.py           # 2D oblique slicer: registration-aware trilinear interpolation
-├── registration.py            # Affine coord transforms (PyBullet world ↔ CT voxel)
-├── generate_patient_meshes.py # CT volume → skin mesh + bone label + registration metadata
-├── download_totalseg.py       # Stream & cache TotalSegmentator subjects from Zenodo
-├── gen_data.py                # Generate 2D paired CT/SimUS training slices from 3D volumes
-├── prepare_dataset.py         # Dataset preparation utilities
-├── example_integration.py     # Standalone usage examples for the Gym environment
 │
-├── model/                     # U-Net generative model
-│   ├── model.py               # 5-level U-Net architecture (InstanceNorm, Sigmoid output)
-│   ├── dataset.py             # CTSimUSDataset: paired loading + HU clipping + normalization
-│   ├── train.py               # Training loop (AMP, cosine LR, checkpointing, validation plots)
-│   ├── inference.py           # Batch inference + PSNR/SSIM evaluation
-│   ├── train_ultrabones.py    # Training on the UltraBones100k ex-vivo dataset
-│   ├── ultrabones_dataset.py  # Dataset loader for UltraBones100k format
-│   ├── reference_ct_slice.npy # Reference histogram template for intensity matching
-│   ├── NOTES.md               # Architecture decisions, hyperparameters, and rationale
-│   ├── requirements.txt       # Model-specific Python dependencies
+├── ── Core Simulation ──────────────────────────────────────────────────────
+│
+├── live_unet_demo.py          # Central hub: PyBullet GUI + all 4 US synthesis modes
+├── robotic_us_env.py          # Gymnasium Env wrapper (wraps PyBullet + slicing + synthesis)
+├── extract_slice.py           # Registration-aware 2D oblique slicer (trilinear interpolation)
+├── registration.py            # Exact affine transforms: PyBullet world ↔ CT voxel
+│
+├── ── Data Pipeline ────────────────────────────────────────────────────────
+│
+├── download_totalseg.py       # Streams 5 TotalSegmentator subjects from Zenodo (3.24 GB)
+├── generate_patient_meshes.py # CT → patient_skin.obj + bone_label.nii.gz + meta.json
+├── gen_data.py                # 3D patient volumes → paired 2D training slices
+│
+├── ── RL / IL Training ─────────────────────────────────────────────────────
+│
+├── train_a2c.py               # A2C training (peak +264.1)
+├── train_sac.py               # SAC training (peak +317.0, project best)
+├── train_ppo.py               # PPO training (benchmark)
+├── train_bc.py                # Behavioral Cloning from expert demos
+├── train_gail.py              # GAIL adversarial imitation learning
+├── collect_demos.py           # Parse Cavalcanti UR5 poses → env replay → demo collection
+├── enjoy_rl.py                # Visual evaluation of any trained policy (A2C/SAC/PPO/BC/GAIL)
+├── test_gym_env.py            # Environment diagnostic & FPS benchmark
+│
+├── ── Generative Models ────────────────────────────────────────────────────
+│
+├── model/
+│   ├── model.py               # 5-level U-Net (InstanceNorm, Sigmoid output, 2-ch input)
+│   ├── dataset.py             # CTSimUSDataset: HU clipping + normalization + slice stacking
+│   ├── train.py               # Training loop: L1 loss, AMP, CosineAnnealingLR
+│   ├── inference.py           # Batch inference: PSNR/SSIM metrics, side-by-side plots
+│   ├── prepare_cavalcanti.py  # Cavalcanti dataset preprocessor: DICOM + ICP + oblique reslice
+│   ├── train_ultrabones.py    # UltraBones100k ex-vivo dataset training
+│   ├── ultrabones_dataset.py  # UltraBones100k dataset loader
+│   ├── reference_ct_slice.npy # Reference histogram template for match_histograms
+│   ├── pix2pix/
+│   │   ├── model.py           # Pix2Pix U-Net variant (Tanh output)
+│   │   ├── discriminator.py   # PatchGAN discriminator
+│   │   └── train_pix2pix.py   # Pix2Pix GAN training loop
 │   └── runs/
-│       └── exp1_2IP/exp1/
-│           └── best_model.pth # Pre-trained 2-channel U-Net checkpoint
+│       ├── exp1_2IP/exp1/best_model.pth  ← Pre-trained 2-channel U-Net
+│       └── exp_pix2pix/best_model.pth    ← Pre-trained Pix2Pix GAN
 │
-├── totalseg_patients/         # Patient volume data (git-ignored)
-│   └── s0058/                 # Active default subject
-│       ├── ct.nii.gz
-│       ├── bone_label.nii.gz
-│       ├── patient_skin.obj
-│       └── registration_meta.json
+├── ── Checkpoints (git-ignored) ────────────────────────────────────────────
 │
-├── a2c_checkpoints/           # Saved RL agent checkpoints (git-ignored)
-├── a2c_tensorboard/           # TensorBoard training logs (git-ignored)
-├── research_registration/     # Archive of experimental registration research code
+├── a2c_checkpoints/           # A2C agent checkpoints
+├── sac_checkpoints/           # SAC agent checkpoints (project-best +317.0)
+├── bc_checkpoints/            # Behavioral Cloning policy
+├── gail_checkpoints/          # GAIL policy
 │
-├── README.md                  # This file
-├── PROJECT_DOCUMENTATION.md   # Detailed architecture & algorithm documentation
-├── COLAB_INSTRUCTIONS.md      # Step-by-step guide for Google Colab training
-├── agent.md                   # Session-to-session context tracker for AI agents
-└── task.md                    # Task checklist and project roadmap
+├── ── Patient Data (git-ignored) ───────────────────────────────────────────
+│
+├── totalseg_patients/
+│   └── {s0011,s0058,s0223,s0250,s0310}/
+│       ├── ct.nii.gz, segmentations/, patient_skin.obj,
+│       ├── bone_label.nii.gz, registration_meta.json
+│
+├── ── Documentation ────────────────────────────────────────────────────────
+│
+├── README.md                  # This file: setup, usage, reference
+├── DEVELOPER_GUIDE.md         # Quick-reference handover for new developers
+├── PROJECT_DOCUMENTATION.md   # Deep-dive technical architecture reference
+├── COLAB_INSTRUCTIONS.md      # Google Colab training guide
+├── commands.md                # All CLI command reference
+├── agent.md                   # AI agent session context tracker
+└── task.md                    # Project roadmap and task checklist
 ```
 
 ---
 
-## 9. Git Workflow
+## 13. Documentation Map
+
+| Document | Purpose |
+|----------|---------|
+| **README.md** | Setup, installation, usage, and quick reference (this file) |
+| **DEVELOPER_GUIDE.md** | Developer handover: file reference, architecture, gotchas, checkpoints |
+| **PROJECT_DOCUMENTATION.md** | Deep-dive: coordinate math, module walkthroughs, RL design, bug history |
+| **COLAB_INSTRUCTIONS.md** | Step-by-step Google Colab training guide |
+| **commands.md** | Central CLI command reference for all scripts |
+| **model/NOTES.md** | U-Net architecture decisions and hyperparameter rationale |
+| **SONOGYM_ANALYSIS.md** | Analysis of the SonoGym paper for reference |
+| **agent.md** | AI agent session-to-session context tracker |
+| **task.md** | Project roadmap and task completion checklist |
+
+---
+
+## 14. Git Workflow
 
 ### Pulling Updates (on training device)
-
-Before starting a new session, sync any changes pushed from another device:
 
 ```bash
 git pull origin main
@@ -335,17 +484,10 @@ git pull origin main
 
 ### Pushing Updates (on development device)
 
-After modifying code or configuration:
-
 ```bash
-# 1. Stage all changes (large data files & caches are auto-excluded by .gitignore)
 git add .
-
-# 2. Commit with a descriptive message
 git commit -m "Brief description of what changed"
-
-# 3. Push to GitHub
 git push origin main
 ```
 
-> **Note:** The `.gitignore` excludes `totalseg_patients/`, `a2c_checkpoints/`, `a2c_tensorboard/`, `__pycache__/`, and `*.nii.gz` / `*.obj` files. Only code, scripts, and lightweight metadata are tracked.
+> **Note:** The `.gitignore` excludes `totalseg_patients/`, checkpoint directories, `__pycache__/`, and large binary files (`*.nii.gz`, `*.obj`, `*.pth`, `*.zip`, `*.png`, `*.npy`). Only code, scripts, and lightweight metadata are tracked.

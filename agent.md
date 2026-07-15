@@ -4,7 +4,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ---
 
-* **Current Focus:** Stage 4 — **Imitation Learning from Real Robotic Scanning Poses** is complete. Trained a Behavioral Cloning (BC) policy from **68k real Cavalcanti UR5 robotic scanning poses** (21 sweeps across 7 volunteers). BC loss converged from 5.85 → 2.0 in 50 epochs (33s on CUDA). Combined with Stage 3 RL results: SAC (+317.0), A2C (+264.1), PPO (-237.0). The project now has **5 autonomous scanning algorithms** (A2C, PPO, SAC, BC, DAgger-ready).
+* **Current Focus:** **Project Handover / Archival.** All stages (0–4) are complete. The project has **5 trained autonomous scanning algorithms** (A2C +264.1, SAC +317.0, PPO -237.0, BC loss 2.0, GAIL), **4 ultrasound synthesis modes** (unet, pix2pix, conv, ray), and comprehensive documentation (README.md, DEVELOPER_GUIDE.md, PROJECT_DOCUMENTATION.md, commands.md). The original developer is no longer actively working on the project. Future agents should read all documentation files before making changes. See `.agents/AGENTS.md` for critical invariants and testing requirements.
 
 ---
 

@@ -126,4 +126,4 @@ This checklist tracks the implementation of Stage 1 (Alignment & Registration) a
   - [x] Run `collect_demos.py --dry-run` on server to validate Cavalcanti pose parsing: 21 sweeps, 67,525 poses → 3,996 actions
   - [x] Run full demo collection on server: 21 trajectories saved in 18s
   - [x] Train BC policy on server: loss 5.85 → 2.0 in 50 epochs (33s on CUDA), `prob_true_act` 0.3% → 20.3%
-  - [ ] Download BC checkpoint and evaluate locally
+  - [x] Download BC checkpoint and evaluate locally: verified smooth visual sweeping and ideal contact force (3.89 N) in local PyBullet GUI.
