@@ -429,7 +429,8 @@ def main():
             no_cvae=args.no_cvae,
         ).to(device)
     
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
+    # Use standard Adam optimizer with no weight decay (matching SB3 default)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # 3. Training Loop
     save_dir = Path(args.save_dir)
