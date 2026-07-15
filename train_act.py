@@ -161,9 +161,15 @@ class ACTCvaeEncoder(nn.Module):
         h = self.mlp(x)
         return self.fc_mu(h), self.fc_logvar(h)
 
-
 class ActionChunkingTransformer(nn.Module):
-    """Action Chunking with Transformers (ACT) model."""
+    """Action Chunking with Transformers (ACT) model.
+    
+    Supports both:
+      1. Standard ACT: CVAE encoder + Transformer Encoder + Transformer Decoder.
+      2. ACT-Lite (no_cvae=True): Bypasses CVAE & Transformer Encoder. Uses a
+         simplified Transformer Decoder cross-attending to a single combined
+         observation feature vector. Recommended for fast convergence.
+    """
     def __init__(self, chunk_size=20, latent_dim=32, d_model=256, nhead=8, num_encoder_layers=4, num_decoder_layers=2, no_cvae=False):
         super().__init__()
         self.chunk_size = chunk_size
@@ -175,32 +181,32 @@ class ActionChunkingTransformer(nn.Module):
         self.vision_encoder = ACTVisionEncoder(features_dim=256)
         self.proprio_encoder = ACTProprioEncoder(input_dim=8, features_dim=64)
         
-        # 2. Projection heads to d_model
-        self.vision_proj = nn.Linear(256, d_model)
-        self.proprio_proj = nn.Linear(64, d_model)
-        
-        # 3. CVAE components (conditional)
         if self.use_cvae:
+            # 2. CVAE components (Standard ACT)
             self.cvae_encoder = ACTCvaeEncoder(obs_features_dim=320, action_dim=6, chunk_size=chunk_size, latent_dim=latent_dim)
+            self.vision_proj = nn.Linear(256, d_model)
+            self.proprio_proj = nn.Linear(64, d_model)
             self.latent_proj = nn.Linear(latent_dim, d_model)
-            # Source tokens: latent z, vision, proprio (seq_len = 3)
+            # Positional embeddings for encoder: seq_len = 3 (z, vision, proprio)
             self.pos_emb = nn.Parameter(torch.randn(3, 1, d_model))
+            encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=1024, activation='relu', batch_first=False)
+            self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
         else:
+            # 2. ACT-Lite components (CVAE-less, Encoder-less)
             self.cvae_encoder = None
-            self.latent_proj = None
-            # Source tokens: vision, proprio (seq_len = 2)
-            self.pos_emb = nn.Parameter(torch.randn(2, 1, d_model))
+            self.transformer_encoder = None
+            self.obs_proj = nn.Sequential(
+                nn.Linear(320, d_model),
+                nn.LayerNorm(d_model),
+                nn.ReLU(),
+            )
         
-        # 4. Transformer components
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=1024, activation='relu', batch_first=False)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_encoder_layers)
-        
-        # Action queries for decoder (seq_len = chunk_size)
+        # 3. Transformer Decoder
         self.query_emb = nn.Parameter(torch.randn(chunk_size, 1, d_model))
-        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=1024, activation='relu', batch_first=False)
+        decoder_layer = nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=512, activation='relu', batch_first=False)
         self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_decoder_layers)
         
-        # 5. Output action head
+        # 4. Output action head
         self.action_head = nn.Linear(d_model, 6)
 
     def forward(self, image, force, pose, target_actions=None):
@@ -210,12 +216,8 @@ class ActionChunkingTransformer(nn.Module):
         vis_feats = self.vision_encoder(image)      # (batch_size, 256)
         prop_feats = self.proprio_encoder(force, pose)  # (batch_size, 64)
         
-        # Project inputs to d_model
-        vis_proj = self.vision_proj(vis_feats)       # (batch_size, d_model)
-        prop_proj = self.proprio_proj(prop_feats)   # (batch_size, d_model)
-        
-        # CVAE sampling & projection if enabled
         if self.use_cvae:
+            # --- Standard ACT path ---
             obs_feats = torch.cat([vis_feats, prop_feats], dim=1) # (batch_size, 320)
             if self.training:
                 assert target_actions is not None, "Target actions required during training for CVAE"
@@ -224,24 +226,26 @@ class ActionChunkingTransformer(nn.Module):
                 eps = torch.randn_like(std)
                 z = mu + eps * std
             else:
-                # Deterministic inference: set z to prior mean
                 z = torch.zeros(batch_size, self.latent_dim, device=image.device)
                 mu, logvar = None, None
             
-            z_proj = self.latent_proj(z) # (batch_size, d_model)
-            # Construct source sequence for Transformer Encoder: seq_len = 3
+            # Project tokens to d_model
+            vis_proj = self.vision_proj(vis_feats)
+            prop_proj = self.proprio_proj(prop_feats)
+            z_proj = self.latent_proj(z)
+            
+            # Encoder source sequence
             src = torch.stack([z_proj, vis_proj, prop_proj], dim=0) # (3, batch, d_model)
+            src = src + self.pos_emb
+            memory = self.transformer_encoder(src) # (3, batch, d_model)
         else:
-            # Bypassed CVAE: only visual and proprioception tokens (seq_len = 2)
-            src = torch.stack([vis_proj, prop_proj], dim=0) # (2, batch, d_model)
+            # --- ACT-Lite path (CVAE-less, Encoder-less) ---
+            obs_feats = torch.cat([vis_feats, prop_feats], dim=1) # (batch_size, 320)
+            # Directly project state to memory of sequence length 1
+            memory = self.obs_proj(obs_feats).unsqueeze(0)        # (1, batch, d_model)
             mu, logvar = None, None
             
-        src = src + self.pos_emb # Add positional embeddings
-        
-        # Encode
-        memory = self.transformer_encoder(src) # (seq_len, batch, d_model)
-        
-        # Construct target sequence (queries) for Transformer Decoder: seq_len = chunk_size
+        # Transformer Decoder query construction
         tgt = self.query_emb.repeat(1, batch_size, 1) # (chunk_size, batch, d_model)
         
         # Decode
@@ -249,9 +253,7 @@ class ActionChunkingTransformer(nn.Module):
         
         # Project to action dimension (6)
         pred_actions = self.action_head(decoded) # (chunk_size, batch, 6)
-        
-        # Transpose back to batch-first: (batch_size, chunk_size, 6)
-        pred_actions = pred_actions.transpose(0, 1)
+        pred_actions = pred_actions.transpose(0, 1) # (batch_size, chunk_size, 6)
         
         return pred_actions, mu, logvar
 
