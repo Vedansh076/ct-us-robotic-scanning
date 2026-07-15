@@ -129,8 +129,10 @@ generate_patient_meshes.py
 
 | Checkpoint | Model | Output Activation | Input |
 |------------|-------|--------------------|-------|
-| `model/runs/exp1_2IP/exp1/best_model.pth` | **2-channel U-Net** (default) | Sigmoid `[0,1]` | CT + bone mask |
-| `model/runs/exp_pix2pix/best_model.pth` | Pix2Pix GAN | Tanh `[-1,1]` | CT + bone mask |
+| runs/cavalcanti_unet/best_model.pth | 2-channel U-Net (Latest) | Sigmoid `[0,1]` | CT + bone |
+| model/runs/exp1_2IP/exp1/best_model.pth | 2-channel U-Net (Fallback/Pre-trained) | Sigmoid `[0,1]` | CT + bone mask |
+| model/runs/exp_pix2pix/best_model.pth | Pix2Pix GAN (Latest) | Tanh `[-1,1]` | CT + bone mask |
+| runs/cavalcanti_pix2pix/best_model.pth | Pix2Pix GAN (Fallback) | Tanh `[-1,1]` | CT + bone |
 
 ### RL / IL Policy Checkpoints (`.zip`)
 

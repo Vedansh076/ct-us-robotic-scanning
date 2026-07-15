@@ -56,8 +56,10 @@ generate_patient_meshes.py
 10. **Strategy 2 Training**: By default, RL training uses `skip_unet=True` (binary bone mask as observation). This runs at ~440 FPS vs ~12 FPS with U-Net. The policy transfers to U-Net observations because the dominant visual feature (bone reflection) is present in both.
 
 ### Trained Checkpoints (DO NOT DELETE):
+- `runs/cavalcanti_unet/best_model.pth` — Latest 2-channel U-Net (trained on Cavalcanti)
 - `model/runs/exp1_2IP/exp1/best_model.pth` — Default 2-channel U-Net
-- `model/runs/exp_pix2pix/best_model.pth` — Pix2Pix GAN
+- `model/runs/exp_pix2pix/best_model.pth` — Latest Pix2Pix GAN
+- `runs/cavalcanti_pix2pix/best_model.pth` — Alternate Pix2Pix GAN
 - `a2c_checkpoints/a2c_final_model.zip` — A2C (reward +264.1)
 - `sac_checkpoints/sac_final_model.zip` — SAC (reward +317.0, BEST)
 - `bc_checkpoints/bc_policy.zip` — Behavioral Cloning (loss 2.0)

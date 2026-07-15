@@ -65,10 +65,12 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 * **Resolution:** Reshaped `act_vec` to 2D `(1, 6)` for `DummyVecEnv.step(exec_action)`, preserved un-batched observation dictionary shapes matching Gymnasium specs (`"image"` `(128, 128)`, `"force"` `(1,)`, `"pose"` `(7,)`), added baseline Z-height alignment (`z_offset = 1.238 - home_pos[2]`), and added contact compliance (`if force == 0.0: act_vec[2] = -0.25`) to ensure continuous 200-step scanning sweeps across all patient torso meshes (`s0011`, `s0058`, `s0223`, `s0250`, `s0310`).
 
 
-### Decision 1: 2-Channel Semantic-Guided Model (CT + Seg -> US)
-* **Architecture:** Transitioning the input pipeline from 1-channel raw CT to 2-channels (Channel 1: CT, Channel 2: binary bone segmentation mask). This ensures perfect, sharp acoustic shadowing and specular bone boundary reflections.
-* **Generative Training:** We will train/fine-tune the model on the **Cavalcanti et al. Robotic Lumbar Spine dataset** (and/or simulated lumbar spine pairs) to align with our clinical focus on lumbar spine navigation, using UltraBones100k only as a pre-training/secondary baseline.
-* **Simulator Anatomy:** We will use **CT spine data** (specifically the TotalSegmentator patient lumbar vertebrae) to generate patient meshes inside PyBullet, utilizing our registration-aware slicing and histogram matching.
+### Trained Checkpoints (DO NOT DELETE):
+* `runs/cavalcanti_unet/best_model.pth` — Latest 2-channel U-Net (trained on Cavalcanti)
+* `model/runs/exp1_2IP/exp1/best_model.pth` — Pre-trained 2-channel U-Net
+* `model/runs/exp_pix2pix/best_model.pth` — Latest Pix2Pix GAN
+* `runs/cavalcanti_pix2pix/best_model.pth` — Alternate Pix2Pix GAN
+* `a2c_checkpoints/a2c_final_model.zip` — A2C (reward +264.1)
 
 ### Decision 2: Curved Clinical Probe & Flange Mount (Visual Design)
 * **Visuals:** Redesigned the probe shape to look like a real curved/convex abdominal array. Replaced the boxy lower wedge with a horizontally oriented cylinder along the X-axis (radius `0.015` m, length `0.056` m). This provides a smooth, rounded scanning footprint that tapers cleanly into the cylinder handle with zero sharp boxy corners.

@@ -205,13 +205,13 @@ python live_unet_demo.py --sim-mode ray         # Ray-tracing with Snell's law (
 
 | Synthesis Mode | Checkpoint Path |
 |---|---|
-| U-Net | `model/runs/exp1_2IP/exp1/best_model.pth` |
-| Pix2Pix | `model/runs/exp_pix2pix/best_model.pth` |
+| U-Net | `runs/cavalcanti_unet/best_model.pth` (Latest) or `model/runs/exp1_2IP/exp1/best_model.pth` |
+| Pix2Pix | `model/runs/exp_pix2pix/best_model.pth` (Latest) or `runs/cavalcanti_pix2pix/best_model.pth` |
 | Conv / Ray | No checkpoint needed (physics-based) |
 
 Specify a custom checkpoint:
 ```bash
-python live_unet_demo.py --checkpoint model/runs/exp_pix2pix/best_model.pth --sim-mode pix2pix
+python live_unet_demo.py --checkpoint runs/cavalcanti_unet/best_model.pth --sim-mode unet
 ```
 
 ### Quantitative Evaluation
