@@ -112,6 +112,10 @@ python enjoy_policy.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail
 Predicts synthetic B-mode ultrasound images in real-time from stacked CT + bone label slices using the trained 2-channel U-Net.
 
 ```powershell
+# Run with the latest U-Net model trained on Cavalcanti (Recommended)
+python live_unet_demo.py --checkpoint runs/cavalcanti_unet/best_model.pth --sim-mode unet
+
+# Run with fallback pre-trained U-Net
 python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --sim-mode unet
 ```
 
@@ -126,6 +130,10 @@ python live_unet_demo.py --checkpoint model/runs/exp_pix2pix/best_model.pth --si
 Calculates quantitative metrics (SSIM, PSNR, MAE) over patient test subjects.
 
 ```powershell
+# Evaluate the latest U-Net model (Recommended)
+python live_unet_demo.py --checkpoint runs/cavalcanti_unet/best_model.pth --eval
+
+# Evaluate fallback U-Net model
 python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --eval
 ```
 
