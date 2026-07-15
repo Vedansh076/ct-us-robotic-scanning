@@ -263,26 +263,26 @@ Navigate to `http://localhost:6006` to view episode reward, policy loss, and val
 
 ## 8. Evaluating Trained Policies
 
-Use `enjoy_rl.py` to visually evaluate any trained policy in the PyBullet GUI. The algorithm is auto-detected from the checkpoint filename:
+Use `enjoy_policy.py` to visually evaluate any trained policy in the PyBullet GUI. The algorithm is auto-detected from the checkpoint filename:
 
 ```bash
 # A2C
-python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+python enjoy_policy.py --checkpoint a2c_checkpoints/a2c_final_model.zip
 
 # SAC (best performing)
-python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip
+python enjoy_policy.py --checkpoint sac_checkpoints/sac_final_model.zip
 
 # PPO
-python enjoy_rl.py --checkpoint ppo_checkpoints/ppo_final_model.zip
+python enjoy_policy.py --checkpoint ppo_checkpoints/ppo_final_model.zip
 
 # Behavioral Cloning (requires --algo bc)
-python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
+python enjoy_policy.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
 
 # GAIL
-python enjoy_rl.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail
+python enjoy_policy.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail
 
 # Headless evaluation (no GUI)
-python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip --headless
+python enjoy_policy.py --checkpoint sac_checkpoints/sac_final_model.zip --headless
 ```
 
 ---
@@ -409,7 +409,7 @@ ct_us/
 ├── train_bc.py                # Behavioral Cloning from expert demos
 ├── train_gail.py              # GAIL adversarial imitation learning
 ├── collect_demos.py           # Parse Cavalcanti UR5 poses → env replay → demo collection
-├── enjoy_rl.py                # Visual evaluation of any trained policy (A2C/SAC/PPO/BC/GAIL)
+├── enjoy_policy.py            # Visual evaluation of any trained policy (A2C/SAC/PPO/BC/GAIL)
 ├── test_gym_env.py            # Environment diagnostic & FPS benchmark
 │
 ├── ── Generative Models ────────────────────────────────────────────────────

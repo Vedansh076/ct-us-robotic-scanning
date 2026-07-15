@@ -1,17 +1,16 @@
 """
-enjoy_rl.py — Run a trained RL agent visually in the PyBullet GUI simulator.
+enjoy_policy.py — Run a trained RL or IL agent visually in the PyBullet GUI simulator.
 =============================================================================
 
 Loads a trained Stable-Baselines3 model checkpoint (.zip) — A2C, PPO, or SAC —
-and executes it inside the RoboticUltrasoundGymEnv environment in "human"
-rendering mode. The algorithm is auto-detected from the checkpoint filename
-(e.g. 'a2c_final_model.zip' → A2C, 'sac_final_model.zip' → SAC).
+or an imitation learning policy (BC, GAIL) and executes it inside the
+RoboticUltrasoundGymEnv environment in "human" rendering mode.
 
 Usage
 -----
-    python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
-    python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip
-    python enjoy_rl.py --checkpoint my_model.zip --algo sac
+    python enjoy_policy.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+    python enjoy_policy.py --checkpoint sac_checkpoints/sac_final_model.zip
+    python enjoy_policy.py --checkpoint my_model.zip --algo sac
 """
 
 import os

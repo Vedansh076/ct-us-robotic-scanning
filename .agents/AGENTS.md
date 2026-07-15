@@ -19,7 +19,7 @@ The codebase has a strict architecture. Before modifying any file, understand th
 
 ### Module Dependency Graph
 ```
-live_unet_demo.py  ←  robotic_us_env.py  ←  train_*.py / enjoy_rl.py
+live_unet_demo.py  ←  robotic_us_env.py  ←  train_*.py / enjoy_policy.py
        ↑                      ↑
   registration.py         extract_slice.py
        ↑
@@ -28,7 +28,7 @@ generate_patient_meshes.py
 
 - `live_unet_demo.py` is the **central hub** (2667 lines). It exports functions used by `robotic_us_env.py`.
 - `robotic_us_env.py` imports ~20 functions from `live_unet_demo.py`. Renaming or removing exported symbols breaks the Gym env.
-- All RL training scripts (`train_a2c.py`, `train_sac.py`, `train_ppo.py`) and `enjoy_rl.py` import from `robotic_us_env.py`.
+- All RL training scripts (`train_a2c.py`, `train_sac.py`, `train_ppo.py`) and `enjoy_policy.py` import from `robotic_us_env.py`.
 - `extract_slice.py` and `registration.py` are standalone utility modules.
 
 ### Critical Invariants — DO NOT BREAK:

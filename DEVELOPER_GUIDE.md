@@ -31,7 +31,7 @@ graph TD
     H3["Conv Physics"]
     H4["Ray-Trace"]
     I["robotic_us_env.py<br/>(Gymnasium Env)"]
-    J["train_*.py / enjoy_rl.py"]
+    J["train_*.py / enjoy_policy.py"]
 
     A --> B --> C --> D
     D -->|"Probe tip position"| E
@@ -46,7 +46,7 @@ graph TD
 ### Module Dependency Graph
 
 ```
-live_unet_demo.py  ←  robotic_us_env.py  ←  train_*.py / enjoy_rl.py
+live_unet_demo.py  ←  robotic_us_env.py  ←  train_*.py / enjoy_policy.py
        ↑                      ↑
   registration.py         extract_slice.py
        ↑
@@ -86,7 +86,7 @@ generate_patient_meshes.py
 | [train_bc.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/train_bc.py) | 203 | Behavioral Cloning from expert demos using `imitation` library + SB3 MultiInputPolicy. Loss 5.85 → 2.0. |
 | [train_gail.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/train_gail.py) | ~160 | GAIL (Generative Adversarial Imitation Learning) training. |
 | [collect_demos.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/collect_demos.py) | 461 | Parses Cavalcanti UR5 `RUS_pose.txt` files → normalized delta-actions → replays through env → saves `(obs, action)` pairs. |
-| [enjoy_rl.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/enjoy_rl.py) | 170 | Visual evaluation of any trained policy (A2C/SAC/PPO/BC/GAIL) in PyBullet GUI. Auto-detects algorithm from filename. |
+| [enjoy_policy.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/enjoy_policy.py) | 170 | Visual evaluation of any trained policy (A2C/SAC/PPO/BC/GAIL) in PyBullet GUI. Auto-detects algorithm from filename. |
 | [test_gym_env.py](file:///e:/DELL/internship/Data/HumanSubjects/HumanSubjects/ct_us/test_gym_env.py) | ~100 | Environment diagnostic: 200 random steps, obs shape verification, FPS benchmark. |
 
 ### Generative Models (`model/` directory)
@@ -186,10 +186,10 @@ nohup python3 train_bc.py --demos-dir demos/ --epochs 50 > train_bc.log 2>&1 &
 ### Evaluate Any Trained Policy
 
 ```bash
-python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip        # SAC (best)
-python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip        # A2C
-python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc     # BC
-python enjoy_rl.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail  # GAIL
+python enjoy_policy.py --checkpoint sac_checkpoints/sac_final_model.zip        # SAC (best)
+python enjoy_policy.py --checkpoint a2c_checkpoints/a2c_final_model.zip        # A2C
+python enjoy_policy.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc     # BC
+python enjoy_policy.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail  # GAIL
 ```
 
 ### Model Evaluation
@@ -317,7 +317,7 @@ The last 3 files are **generated** by `generate_patient_meshes.py` — they are 
 
 - **DummyVecEnv, not SubprocVecEnv:** PyBullet physics clients and CUDA contexts **cannot** be safely forked across processes. `SubprocVecEnv` will cause silent corruption.
 
-- **PyTorch 2.6+ compatibility:** `torch.load()` requires `weights_only=False` for SB3 checkpoints. This is monkey-patched in `enjoy_rl.py`.
+- **PyTorch 2.6+ compatibility:** `torch.load()` requires `weights_only=False` for SB3 checkpoints. This is monkey-patched in `enjoy_policy.py`.
 
 - **Large files are git-ignored:** `.nii.gz`, `.obj`, `.pth`, `.zip`, `.png`, `.npy` are all in `.gitignore`. Only Python code and markdown docs are tracked. Checkpoints and patient data must be transferred separately.
 

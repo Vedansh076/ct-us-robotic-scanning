@@ -7,19 +7,19 @@
 
 ## 1. Autonomous Reinforcement Learning (RL) Scanning Agent
 
-### A. Evaluate / Visualize Trained Agent in GUI Simulator (`enjoy_rl.py`)
+### A. Evaluate / Visualize Trained Agent in GUI Simulator (`enjoy_policy.py`)
 Runs a trained Stable-Baselines3 model (.zip) in the live interactive PyBullet GUI simulator. Supports auto-detection for A2C, PPO, and SAC checkpoints.
 
 ```powershell
 # Run final trained A2C scanning agent (Default/Recommended)
-python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_final_model.zip
+python enjoy_policy.py --checkpoint a2c_checkpoints/a2c_final_model.zip
 
 # Run specific step checkpoint (e.g. 30k steps)
-python enjoy_rl.py --checkpoint a2c_checkpoints/a2c_model_30000_steps.zip
+python enjoy_policy.py --checkpoint a2c_checkpoints/a2c_model_30000_steps.zip
 
 # Run trained PPO or SAC model (auto-detected from filename)
-python enjoy_rl.py --checkpoint ppo_checkpoints/ppo_final_model.zip
-python enjoy_rl.py --checkpoint sac_checkpoints/sac_final_model.zip
+python enjoy_policy.py --checkpoint ppo_checkpoints/ppo_final_model.zip
+python enjoy_policy.py --checkpoint sac_checkpoints/sac_final_model.zip
 ```
 
 ### B. Train A2C Agent (`train_a2c.py`)
@@ -78,11 +78,11 @@ nohup python3 train_bc.py --demos-dir demos/ --epochs 50 > train_bc.log 2>&1 &
 python3 train_bc.py --demos-dir demos/ --epochs 100 --lr 1e-4 --batch-size 128
 ```
 
-### C. Evaluate BC Policy (`enjoy_rl.py --algo bc`)
+### C. Evaluate BC Policy (`enjoy_policy.py --algo bc`)
 Runs the trained BC/IL policy in the PyBullet GUI simulator.
 
 ```powershell
-python enjoy_rl.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
+python enjoy_policy.py --checkpoint bc_checkpoints/bc_policy.zip --algo bc
 ```
 
 ### D. Train GAIL Policy (`train_gail.py`)
@@ -97,11 +97,11 @@ nohup taskset -c 0,1,2,3 python3 train_gail.py --demos-dir demos/ --timesteps 50
 python3 train_gail.py --demos-dir demos/ --timesteps 50000
 ```
 
-### E. Evaluate GAIL Policy (`enjoy_rl.py --algo gail`)
+### E. Evaluate GAIL Policy (`enjoy_policy.py --algo gail`)
 Runs the trained GAIL generator policy in the PyBullet GUI simulator.
 
 ```powershell
-python enjoy_rl.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail --skip-unet
+python enjoy_policy.py --checkpoint gail_checkpoints/gail_policy.zip --algo gail --skip-unet
 ```
 
 ---
