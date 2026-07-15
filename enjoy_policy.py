@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.resolve()))
 
 from stable_baselines3 import A2C, PPO, SAC
 from stable_baselines3.common.policies import BasePolicy
+from stable_baselines3.common.vec_env import DummyVecEnv
 from robotic_us_env import RoboticUltrasoundGymEnv
 
 # Monkey-patch torch.load to default weights_only=False for PyTorch 2.6+ compatibility
@@ -50,6 +51,7 @@ def main():
     parser.add_argument("--skip-unet", action="store_true", help="Skip U-Net inference and return raw bone segmentation masks")
     parser.add_argument("--scale-y", type=float, default=1.0, help="Multiplier for Y-axis action to speed up visual sweep (default: 1.0)")
     parser.add_argument("--smooth-alpha", type=float, default=0.35, help="EMA smoothing factor for evaluation actions (default: 0.35)")
+    parser.add_argument("--lock-x", action="store_true", help="Lock lateral X movement to keep probe centered on the spine ridge")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -128,6 +130,9 @@ def main():
         policy = None
 
     try:
+        # Training dataset reference Z height (s0058 baseline = 1.238m)
+        TRAIN_BASELINE_Z = 1.238
+        
         for ep in range(1, args.episodes + 1):
             print(f"\n--- Starting Episode {ep} ---")
             obs, info = env.reset()
@@ -135,18 +140,74 @@ def main():
             step_count = 0
             done = False
             
+            # Ensure probe is settled in skin contact (>=1.5N force) at episode start
+            start_force = float(obs["force"].reshape(-1)[0]) if isinstance(obs, dict) else float(obs.reshape(-1)[16384])
+            settle_count = 0
+            while start_force < 1.5 and settle_count < 5:
+                down_vec = np.array([0.0, 0.0, -0.35, 0.0, 0.0, 0.0], dtype=np.float32)
+                exec_down = down_vec.reshape(1, -1) if isinstance(env, DummyVecEnv) else down_vec
+                obs, _, _, _, _ = env.step(exec_down)
+                start_force = float(obs["force"].reshape(-1)[0]) if isinstance(obs, dict) else float(obs.reshape(-1)[16384])
+                settle_count += 1
+            
+            # Compute baseline Z-height alignment offset relative to training reference (1.238m)
+            inner_env = env.envs[0].unwrapped if hasattr(env, "envs") else (env.unwrapped if hasattr(env, "unwrapped") else env)
+            z_offset = float(TRAIN_BASELINE_Z - inner_env.home_pos[2])
+            
             while not done:
+                # Prepare aligned observation with exact un-batched shapes matching Gymnasium specs
+                if isinstance(obs, dict):
+                    aligned_obs = {
+                        "image": obs["image"].copy(),
+                        "force": obs["force"].copy(),
+                        "pose":  obs["pose"].copy(),
+                    }
+                    aligned_obs["pose"][2] += np.float32(z_offset)
+                else:
+                    aligned_obs = obs.copy()
+                    if aligned_obs.ndim == 2:
+                        aligned_obs[0, 16387] += z_offset
+                    else:
+                        aligned_obs[16387] += z_offset
+                
                 # Predict the next action deterministically
                 if model is not None:
-                    action, _states = model.predict(obs, deterministic=True)
+                    action, _states = model.predict(aligned_obs, deterministic=True)
                 else:
-                    action, _states = policy.predict(obs, deterministic=True)
+                    action, _states = policy.predict(aligned_obs, deterministic=True)
+                
+                # Extract 1D action vector
+                act_vec = action.reshape(-1)
+                
+                # Clamp lateral X drift to keep probe on the spine centerline
+                if getattr(args, 'lock_x', False):
+                    act_vec[0] = 0.0
+                
+                # Contact compliance: if probe loses skin contact (force == 0.0N), press downward to maintain scan
+                curr_f = inner_env.current_force
+                if curr_f == 0.0:
+                    act_vec[2] = -0.25
                 
                 # Apply Y-axis speed multiplier for visual evaluation
-                action[1] = action[1] * args.scale_y
+                act_vec[1] = act_vec[1] * args.scale_y
+                
+                # Format action for VecEnv (1, 6) vs Raw Gym Env (6,)
+                if isinstance(env, DummyVecEnv):
+                    exec_action = act_vec.reshape(1, -1)
+                else:
+                    exec_action = act_vec
                 
                 # Step the simulator
-                obs, reward, terminated, truncated, info = env.step(action)
+                obs, reward, terminated, truncated, info = env.step(exec_action)
+                
+                # Unwrap scalar values if vector environment
+                if isinstance(reward, np.ndarray):
+                    reward = float(reward[0])
+                if isinstance(terminated, np.ndarray):
+                    terminated = bool(terminated[0])
+                if isinstance(truncated, np.ndarray):
+                    truncated = bool(truncated[0])
+                
                 episode_reward += reward
                 step_count += 1
                 done = terminated or truncated
@@ -154,10 +215,11 @@ def main():
                 # Print status
                 import pybullet as p
                 from live_unet_demo import PANDA_EE_LINK
-                force = env.unwrapped.current_force
-                ee_state = p.getLinkState(env.unwrapped.panda_id, PANDA_EE_LINK)
+                inner_env = env.envs[0].unwrapped if hasattr(env, "envs") else (env.unwrapped if hasattr(env, "unwrapped") else env)
+                force = inner_env.current_force
+                ee_state = p.getLinkState(inner_env.panda_id, PANDA_EE_LINK)
                 pose = ee_state[4]
-                print(f"  Step {step_count:3d} | Force: {force:4.2f} N | EE X: {pose[0]:.4f} | Y: {pose[1]:.4f} | Z: {pose[2]:.4f} | Action Y: {action[1]:.4f} Z: {action[2]:.4f}")
+                print(f"  Step {step_count:3d} | Force: {force:4.2f} N | EE X: {pose[0]:.4f} | Y: {pose[1]:.4f} | Z: {pose[2]:.4f} | Action Y: {act_vec[1]:.4f} Z: {act_vec[2]:.4f}")
                 
                 # Small delay to make the simulation human-viewable
                 time.sleep(args.delay)

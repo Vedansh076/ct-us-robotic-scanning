@@ -269,8 +269,8 @@ class RoboticUltrasoundGymEnv(gym.Env):
             found_body, surface_z = raycast_skin_surface(tx, ty, self.body_id)
             
         if found_body:
-            # Settle the probe touching the skin surface with 3mm initial penetration (2.4N initial force)
-            self.home_pos = np.array([tx, ty, surface_z + 0.000 + 0.18], dtype=np.float32)
+            # Settle the probe exactly touching the skin surface with 3mm standoff
+            self.home_pos = np.array([tx, ty, surface_z + 0.003 + 0.18], dtype=np.float32)
             # High approach target to prevent side collision
             approach_pos = np.array([tx, ty, surface_z + 0.10 + 0.18], dtype=np.float32)
         else:
