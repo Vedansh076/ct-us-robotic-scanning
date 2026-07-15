@@ -1922,10 +1922,34 @@ def scan_target_pose(elapsed, body_center, body_extent, scan_speed, body_footpri
 
 
 def drive_panda_to_pose(panda_id, target_position, target_orientation, max_force=150.0, max_velocity=1.5) -> None:
+    num_joints = p.getNumJoints(panda_id)
+    lower_limits = []
+    upper_limits = []
+    joint_ranges = []
+    rest_poses = []
+    joint_damping = [0.01] * num_joints
+    
+    for i in range(num_joints):
+        j_info = p.getJointInfo(panda_id, i)
+        low = j_info[8]
+        high = j_info[9]
+        if low >= high:
+            low = -2 * np.pi
+            high = 2 * np.pi
+        lower_limits.append(low)
+        upper_limits.append(high)
+        joint_ranges.append(high - low)
+        rest_poses.append(p.getJointState(panda_id, i)[0])
+
     joint_targets = p.calculateInverseKinematics(
         panda_id, PANDA_EE_LINK,
         targetPosition=target_position.tolist(),
         targetOrientation=target_orientation.tolist(),
+        lowerLimits=lower_limits,
+        upperLimits=upper_limits,
+        jointRanges=joint_ranges,
+        restPoses=rest_poses,
+        jointDamping=joint_damping,
         maxNumIterations=100, residualThreshold=1e-5,
     )
     for jid in PANDA_ARM_JOINTS:
