@@ -142,8 +142,16 @@ def main():
     model = torch.load(args.checkpoint, map_location=device)
     model.eval()
     
-    # Initialize temporal ensembler
-    ensembler = ACTTemporalEnsemble(chunk_size=model.chunk_size, temperature=args.temperature)
+    # Load normalization stats if available
+    import pickle
+    stats_path = Path(args.checkpoint).parent / "norm_stats.pkl"
+    norm_stats = None
+    if stats_path.exists():
+        with open(stats_path, "rb") as f:
+            norm_stats = pickle.load(f)
+        print(f"[model] Loaded dataset normalization statistics from {stats_path}")
+    else:
+        print("[model] Warning: norm_stats.pkl not found. Evaluating with raw un-normalized values.")
 
     try:
         for ep in range(1, args.episodes + 1):
@@ -159,13 +167,27 @@ def main():
                 image_np = obs["image"].astype(np.float32) / 255.0
                 image_t = torch.tensor(image_np, device=device).unsqueeze(0).unsqueeze(0) # (1, 1, 128, 128)
                 
-                force_t = torch.tensor(obs["force"].astype(np.float32), device=device).unsqueeze(0) # (1, 1)
-                pose_t = torch.tensor(obs["pose"].astype(np.float32), device=device).unsqueeze(0)   # (1, 7)
+                raw_force = obs["force"].astype(np.float32)
+                raw_pose = obs["pose"].astype(np.float32)
+                
+                if norm_stats is not None:
+                    force_norm = (raw_force - norm_stats["force_mean"][0]) / norm_stats["force_std"][0]
+                    pose_norm = (raw_pose - norm_stats["pose_mean"][0]) / norm_stats["pose_std"][0]
+                else:
+                    force_norm = raw_force
+                    pose_norm = raw_pose
+                    
+                force_t = torch.tensor(force_norm, device=device).unsqueeze(0) # (1, 1)
+                pose_t = torch.tensor(pose_norm, device=device).unsqueeze(0)   # (1, 7)
                 
                 # Predict action chunk
                 with torch.no_grad():
                     pred_chunk_t, _, _ = model(image_t, force_t, pose_t)
                     pred_chunk = pred_chunk_t.squeeze(0).cpu().numpy() # (chunk_size, 6)
+                
+                # Un-normalize predicted action chunk if stats exist
+                if norm_stats is not None:
+                    pred_chunk = pred_chunk * norm_stats["action_std"][0] + norm_stats["action_mean"][0]
                 
                 # Retrieve ensembled action
                 action = ensembler.update_and_get_action(pred_chunk)

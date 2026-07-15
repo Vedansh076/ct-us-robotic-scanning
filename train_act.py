@@ -81,6 +81,19 @@ class ACTDataset(Dataset):
                     "actions": action_chunk.astype(np.float32),
                 })
                 
+        # Compute dataset normalization statistics (mean and std)
+        all_forces = np.array([s["force"] for s in self.samples])
+        all_poses = np.array([s["pose"] for s in self.samples])
+        all_actions = np.array([s["actions"] for s in self.samples])  # (N, chunk_size, 6)
+        
+        self.stats = {
+            "force_mean": np.mean(all_forces, axis=0, keepdims=True),
+            "force_std": np.std(all_forces, axis=0, keepdims=True) + 1e-6,
+            "pose_mean": np.mean(all_poses, axis=0, keepdims=True),
+            "pose_std": np.std(all_poses, axis=0, keepdims=True) + 1e-6,
+            "action_mean": np.mean(all_actions, axis=(0, 1), keepdims=True),  # (1, 1, 6)
+            "action_std": np.std(all_actions, axis=(0, 1), keepdims=True) + 1e-6,
+        }
         print(f"  [data] Created ACT dataset with {len(self.samples)} samples (chunk size: {chunk_size}).")
 
     def __len__(self):
@@ -88,11 +101,15 @@ class ACTDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
+        force_norm = (sample["force"] - self.stats["force_mean"][0]) / self.stats["force_std"][0]
+        pose_norm = (sample["pose"] - self.stats["pose_mean"][0]) / self.stats["pose_std"][0]
+        actions_norm = (sample["actions"] - self.stats["action_mean"][0]) / self.stats["action_std"][0]
+        
         return (
             torch.tensor(sample["image"]).unsqueeze(0), # Add channel dim: (1, 128, 128)
-            torch.tensor(sample["force"]),              # (1,)
-            torch.tensor(sample["pose"]),               # (7,)
-            torch.tensor(sample["actions"]),            # (k, 6)
+            torch.tensor(force_norm, dtype=torch.float32),
+            torch.tensor(pose_norm, dtype=torch.float32),
+            torch.tensor(actions_norm, dtype=torch.float32),
         )
 
 
@@ -455,7 +472,10 @@ def main():
             torch.save(model.state_dict(), save_dir / "act_best_state.pth")
             # Save full model (including architecture config)
             torch.save(model, save_dir / "act_policy.zip")
-            print(f"  [OK] Saved new best checkpoint to {save_dir / 'act_policy.zip'}")
+            # Save dataset normalization stats
+            with open(save_dir / "norm_stats.pkl", "wb") as f:
+                pickle.dump(full_dataset.stats, f)
+            print(f"  [OK] Saved new best checkpoint and norm_stats to {save_dir / 'act_policy.zip'}")
 
     print("\n[train] Training complete!")
     print("=" * 60)
