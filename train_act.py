@@ -258,6 +258,47 @@ class ActionChunkingTransformer(nn.Module):
         return pred_actions, mu, logvar
 
 
+class MlpActionChunkingPolicy(nn.Module):
+    """ACT-MLP: Simplified MLP-based Action Chunking Policy.
+    
+    Bypasses all Transformer attention mechanisms, mapping observations
+    directly to future action chunks. Highly recommended for small datasets.
+    """
+    def __init__(self, chunk_size=20):
+        super().__init__()
+        self.chunk_size = chunk_size
+        self.use_cvae = False # Compatibility flag
+        
+        # 1. Feature encoders
+        self.vision_encoder = ACTVisionEncoder(features_dim=256)
+        self.proprio_encoder = ACTProprioEncoder(input_dim=8, features_dim=64)
+        
+        # 2. MLP Policy Head
+        self.policy_head = nn.Sequential(
+            nn.Linear(320, 256),
+            nn.ReLU(),
+            nn.Linear(256, 256),
+            nn.ReLU(),
+            nn.Linear(256, chunk_size * 6)
+        )
+
+    def forward(self, image, force, pose, target_actions=None):
+        batch_size = image.size(0)
+        
+        # Extract features
+        vis_feats = self.vision_encoder(image)      # (batch_size, 256)
+        prop_feats = self.proprio_encoder(force, pose)  # (batch_size, 64)
+        
+        # Concatenate features
+        obs_feats = torch.cat([vis_feats, prop_feats], dim=1) # (batch_size, 320)
+        
+        # Direct projection
+        out = self.policy_head(obs_feats) # (batch_size, chunk_size * 6)
+        pred_actions = out.reshape(batch_size, self.chunk_size, 6)
+        
+        return pred_actions, None, None
+
+
 # =============================================================================
 # 3. Training logic
 # =============================================================================
@@ -335,6 +376,7 @@ def main():
     parser.add_argument("--chunk-size", type=int, default=20, help="Action chunk sequence size (k)")
     parser.add_argument("--latent-dim", type=int, default=32, help="CVAE latent space z dimension")
     parser.add_argument("--no-cvae", action="store_true", help="Bypass CVAE and train a deterministic Action Chunking Transformer")
+    parser.add_argument("--mlp", action="store_true", help="Use simplified MLP-based Action Chunking Policy instead of Transformer")
     parser.add_argument("--save-dir", type=str, default="act_checkpoints", help="Save directory")
     parser.add_argument("--device", type=str, default="auto", help="auto, cpu, or cuda")
     args = parser.parse_args()
@@ -346,8 +388,14 @@ def main():
     print(f"  Epochs:      {args.epochs}")
     print(f"  Batch size:  {args.batch_size}")
     print(f"  LR:          {args.lr}")
-    print(f"  CVAE mode:   {'Disabled' if args.no_cvae else 'Enabled'}")
-    if not args.no_cvae:
+    if args.mlp:
+        print("  Architecture: ACT-MLP (Simplified MLP Policy)")
+    elif args.no_cvae:
+        print("  Architecture: ACT-Lite (Encoder-less Transformer)")
+        print(f"  CVAE mode:   Disabled")
+    else:
+        print("  Architecture: Standard ACT (CVAE + Transformer)")
+        print(f"  CVAE mode:   Enabled")
         print(f"  KL weight:   {args.kl_weight}")
     print(f"  Chunk size:  {args.chunk_size}")
     print(f"  Save dir:    {args.save_dir}")
@@ -372,11 +420,14 @@ def main():
         device = torch.device(args.device)
     print(f"\n[device] Using training device: {device}")
     
-    model = ActionChunkingTransformer(
-        chunk_size=args.chunk_size,
-        latent_dim=args.latent_dim,
-        no_cvae=args.no_cvae,
-    ).to(device)
+    if args.mlp:
+        model = MlpActionChunkingPolicy(chunk_size=args.chunk_size).to(device)
+    else:
+        model = ActionChunkingTransformer(
+            chunk_size=args.chunk_size,
+            latent_dim=args.latent_dim,
+            no_cvae=args.no_cvae,
+        ).to(device)
     
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
 

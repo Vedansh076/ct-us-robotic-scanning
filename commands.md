@@ -199,19 +199,25 @@ python test_slice.py
 ## 7. Action Chunking with Transformers (ACT) Benchmark
 
 ### A. Train ACT Model (`train_act.py`)
-Trains the Action Chunking Transformer. Recommended mode is `--no-cvae` (CVAE disabled) to prevent latent space collapse and shortcut learning on spinal sweeps.
+Trains the Action Chunking policy. Recommended options:
+* `--mlp`: (Highly Recommended) Trains the simplified MLP Action Chunking Policy (ACT-MLP). It has the fastest convergence and is the most stable on small datasets.
+* `--no-cvae`: Trains the CVAE-less Transformer (ACT-Lite).
+* (Default): Trains standard ACT with CVAE.
 
 ```bash
 cd ~/workspace/lakshya/ct-us-robotic-scanning
-# Recommended: Deterministic ACT (no CVAE)
-nohup taskset -c 0,1,2,3 python3 train_act.py --demos-dir demos/ --epochs 100 --chunk-size 20 --no-cvae > train_act.log 2>&1 &
+# Recommended: MLP-ACT Policy (ACT-MLP)
+nohup taskset -c 0,1,2,3 python3 train_act.py --demos-dir demos/ --epochs 100 --chunk-size 20 --mlp --lr 1e-3 > train_act.log 2>&1 &
+
+# ACT-Lite (no CVAE Transformer)
+nohup taskset -c 0,1,2,3 python3 train_act.py --demos-dir demos/ --epochs 300 --chunk-size 20 --no-cvae --lr 1e-3 > train_act.log 2>&1 &
 
 # Standard ACT (with CVAE)
 python3 train_act.py --demos-dir demos/ --epochs 100 --chunk-size 20
 ```
 
 ### B. Evaluate ACT Policy (`enjoy_act.py`)
-Runs the trained ACT policy in the PyBullet GUI simulator using temporal ensembling to smooth out overlaps.
+Runs the trained ACT policy in the PyBullet GUI simulator. If using Transformer, set `--temperature 0.1` to prevent dilution from decayed future steps.
 
 ```powershell
 python enjoy_act.py --checkpoint act_checkpoints/act_policy.zip --skip-unet
