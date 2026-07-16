@@ -152,8 +152,8 @@ PROBE_COMPONENTS = (
     },
 )
 
-DEFAULT_UNET_CKPT = MODEL_ROOT / "runs" / "exp1" / "best_model.pth"
-DEFAULT_PIX2PIX_CKPT = MODEL_ROOT / "runs" / "pix2pix_test" / "best_model.pth"
+DEFAULT_UNET_CKPT = PROJECT_ROOT / "runs" / "cavalcanti_unet" / "best_model.pth"
+DEFAULT_PIX2PIX_CKPT = MODEL_ROOT / "runs" / "exp_pix2pix" / "best_model.pth"
 
 # ── normalisation constants (Concordia paired CT-US training data) ─────────────
 # These values replicate the training preprocessing: HU is soft-windowed to
