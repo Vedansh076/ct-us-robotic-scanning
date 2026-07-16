@@ -115,6 +115,9 @@ Predicts synthetic B-mode ultrasound images in real-time from stacked CT + bone 
 # Run with the latest U-Net model trained on Cavalcanti (Recommended)
 python live_unet_demo.py --checkpoint runs/cavalcanti_unet/best_model.pth --sim-mode unet
 
+# Run in CPU-optimised mode using lightweight U-Net (22+ FPS on CPU)
+python live_unet_demo.py --cpu-mode
+
 # Run with fallback pre-trained U-Net
 python live_unet_demo.py --checkpoint model/runs/exp1_2IP/exp1/best_model.pth --sim-mode unet
 ```

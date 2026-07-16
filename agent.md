@@ -67,6 +67,7 @@ This file preserves the active state, findings, and context of the CT-to-Ultraso
 
 ### Trained Checkpoints (DO NOT DELETE):
 * `runs/cavalcanti_unet/best_model.pth` — Latest 2-channel U-Net (trained on Cavalcanti)
+* `runs/cavalcanti_unet_cpu/best_model.pth` — Lightweight 2-channel U-Net (optimised for CPU)
 * `model/runs/exp1_2IP/exp1/best_model.pth` — Pre-trained 2-channel U-Net
 * `model/runs/exp_pix2pix/best_model.pth` — Latest Pix2Pix GAN
 * `runs/cavalcanti_pix2pix/best_model.pth` — Alternate Pix2Pix GAN
